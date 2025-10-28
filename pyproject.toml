@@ -1,0 +1,37 @@
+[build-system]
+requires = ["setuptools>=80", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sys2txt"
+version = "0.1.0"
+description = "Record system audio and transcribe to text using AI"
+readme = "README.md"
+requires-python = ">=3.9"
+license = {text = "MIT"}
+authors = [
+    {name = "Joe Heffer", email = "jheffer@gmail.com"}
+]
+dependencies = [
+    "faster-whisper>=1.0.0",
+    "openai-whisper>=20231117",
+]
+
+[project.scripts]
+sys2txt = "sys2txt.__main__:main"
+
+[project.optional-dependencies]
+dev = [
+    "ruff>=0.8.0",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py39"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W"]
+ignore = []
