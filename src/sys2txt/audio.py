@@ -72,7 +72,7 @@ def segment_and_transcribe_live(
         sample_rate: Sample rate in Hz
         channels: Number of audio channels
         segment_seconds: Length of each segment in seconds
-        transcribe_callback: Function to call for each segment. Should accept (file_path, segment_index) and return text.
+        transcribe_callback: Function to call for each segment. Should accept (file_path, segment_index) and return text
         output_path: Optional file path to append transcripts to
     """
     ffmpeg = which("ffmpeg")

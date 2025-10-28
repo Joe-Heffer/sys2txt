@@ -20,8 +20,6 @@ def transcribe_file(path: str, engine: str, model_size: str, language: Optional[
     engine = engine.lower()
     if engine == "auto":
         try:
-            import faster_whisper  # type: ignore
-
             engine = "faster"
         except Exception:
             engine = "whisper"

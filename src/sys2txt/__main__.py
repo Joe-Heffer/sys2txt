@@ -81,7 +81,11 @@ def main():
                 return
         # If input provided, just transcribe it
         text = transcribe_file(
-            audio_path, engine=args.engine, model_size=args.model_size, language=args.language, timestamps=args.timestamps
+            audio_path,
+            engine=args.engine,
+            model_size=args.model_size,
+            language=args.language,
+            timestamps=args.timestamps,
         )
         print(text)
         if args.output:
