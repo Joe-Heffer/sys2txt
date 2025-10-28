@@ -99,17 +99,49 @@ The codebase is organized into focused modules by functionality:
 ### GPU Acceleration
 Set `SYS2TXT_DEVICE=cuda` environment variable to enable CUDA acceleration for faster-whisper (requires compatible ctranslate2 build with CUDA support).
 
-## Continuous Integration
+## Continuous Integration & Deployment
 
-The project uses GitHub Actions for CI/CD. The workflow (`.github/workflows/ci.yml`) runs on:
+The project uses GitHub Actions for CI/CD:
+
+### CI Workflow (`.github/workflows/ci.yml`)
+Runs on:
 - Push to `main` branch
 - Pull requests to `main` branch
 
-CI pipeline includes:
+Pipeline includes:
 - Testing on Python 3.9, 3.10, 3.11, and 3.12
 - Code formatting check with `ruff format --check`
 - Linting with `ruff check`
 - Unit tests with `python -m unittest`
+
+### Publishing Workflows
+
+**TestPyPI** (`.github/workflows/publish-to-testpypi.yml`):
+- Triggered by tags matching `v*-rc*` (e.g., `v0.1.0-rc1`)
+- Publishes to https://test.pypi.org for testing
+- Uses trusted publishing (no API tokens needed)
+
+**PyPI** (`.github/workflows/publish-to-pypi.yml`):
+- Triggered when a GitHub release is published
+- Publishes to https://pypi.org
+- Signs packages with Sigstore
+- Uploads signed artifacts to GitHub release
+- Uses trusted publishing (no API tokens needed)
+
+### Setup Required for Publishing
+
+1. **Configure Trusted Publishing on PyPI**:
+   - Go to https://pypi.org/manage/account/publishing/
+   - Add publisher: `Joe-Heffer/sys2txt` workflow `publish-to-pypi.yml`
+
+2. **Configure Trusted Publishing on TestPyPI**:
+   - Go to https://test.pypi.org/manage/account/publishing/
+   - Add publisher: `Joe-Heffer/sys2txt` workflow `publish-to-testpypi.yml`
+
+3. **Create environments in GitHub**:
+   - Go to repository Settings → Environments
+   - Create `pypi` environment
+   - Create `testpypi` environment
 
 ## Development Commands
 
@@ -151,7 +183,10 @@ ruff check --fix src/
   - `tests/test_pulse.py`: Tests for PulseAudio integration
   - `tests/test_transcribe.py`: Tests for transcription engines
   - `tests/test_audio.py`: Tests for audio recording
-- `.github/workflows/ci.yml`: GitHub Actions CI/CD workflow
+- `.github/workflows/`:
+  - `ci.yml`: CI workflow (tests, linting, formatting)
+  - `publish-to-pypi.yml`: Publish to PyPI on release
+  - `publish-to-testpypi.yml`: Publish to TestPyPI on RC tags
 - `pyproject.toml`: Project metadata, dependencies, and build config
 - `requirements.txt`: Python dependencies (faster-whisper, openai-whisper)
 - `README.md`: User documentation with installation, usage, examples

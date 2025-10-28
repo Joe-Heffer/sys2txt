@@ -1,6 +1,6 @@
-# sys2txt
+[![CI](https://github.com/Joe-Heffer/sys2txt/actions/workflows/ci.yml/badge.svg)](https://github.com/Joe-Heffer/sys2txt/actions/workflows/ci.yml)
 
-[![CI](https://github.com/USERNAME/sys2txt/actions/workflows/ci.yml/badge.svg)](https://github.com/USERNAME/sys2txt/actions/workflows/ci.yml)
+# sys2txt
 
 Record system audio and transcribe to text using ✨AI✨.
 
