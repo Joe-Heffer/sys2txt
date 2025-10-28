@@ -2,16 +2,16 @@
 
 [![CI](https://github.com/USERNAME/sys2txt/actions/workflows/ci.yml/badge.svg)](https://github.com/USERNAME/sys2txt/actions/workflows/ci.yml)
 
-Record system audio and transcribe to text using AI.
+Record system audio and transcribe to text using ✨AI✨.
 
 ## Overview
 
-sys2txt is a tiny CLI that records your Ubuntu system audio (via PulseAudio/PipeWire monitor sources) with ffmpeg and transcribes it locally using [Whisper](https://github.com/openai/whisper). It supports both:
+sys2txt is a command-line tool that records your system audio (via PulseAudio/PipeWire monitor sources) with `ffmpeg` and transcribes it locally using [Whisper](https://github.com/openai/whisper). It supports both:
 
 - On-demand: Record until you stop, then transcribe once
 - Live-ish: Segment the recording every *N* seconds and transcribe each segment as it’s created (prints continuously)
 
-You can use either the `openai-whisper` (Python) reference implementation or the faster-whisper (ctranslate2) engine if installed. The tool auto-selects `faster-whisper` when available for better speed on CPU and especially GPU.
+You can use either the `openai-whisper` (Python) reference implementation or the [`faster-whisper`](https://github.com/SYSTRAN/faster-whisper) engine if installed. The tool auto-selects `faster-whisper` when available for better speed on CPU and especially GPU.
 
 ## Installation
 
@@ -26,7 +26,8 @@ You can use either the `openai-whisper` (Python) reference implementation or the
 1) System packages
 
 ```bash
-sudo apt update && sudo apt install -y ffmpeg python3-venv python3-pip
+sudo apt update
+sudo apt install -y ffmpeg python3-venv python3-pip
 ```
 
 2) Create a virtual environment and install sys2txt
