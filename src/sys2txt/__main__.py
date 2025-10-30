@@ -24,7 +24,6 @@ def main():
         "--model",
         dest="model_size",
         default="small",
-        choices=["tiny", "base", "small", "medium", "large-v2"],
         help="Whisper model size (default: small)",
     )
     common.add_argument(
