@@ -1,14 +1,14 @@
-# sys2txt
-
 [![CI](https://github.com/Joe-Heffer/sys2txt/actions/workflows/ci.yml/badge.svg)](https://github.com/Joe-Heffer/sys2txt/actions/workflows/ci.yml)
 [![PyPI version](https://badge.fury.io/py/sys2txt.svg)](https://badge.fury.io/py/sys2txt)
 [![Python versions](https://img.shields.io/pypi/pyversions/sys2txt.svg)](https://pypi.org/project/sys2txt/)
 
-Record system audio and transcribe to text using ✨AI✨.
+# System audio to text
+
+Record system audio and automatically transcribe to text using ✨AI✨.
 
 ## Overview
 
-sys2txt is a command-line tool that records your system audio (via PulseAudio/PipeWire monitor sources) with `ffmpeg` and transcribes it locally using [Whisper](https://github.com/openai/whisper). It supports both:
+`sys2txt` is a command-line tool that records your system audio (via PulseAudio/PipeWire monitor sources) with `ffmpeg` and transcribes it locally using [Whisper](https://github.com/openai/whisper). It supports both:
 
 - On-demand: Record until you stop, then transcribe once
 - Live-ish: Segment the recording every *N* seconds and transcribe each segment as it’s created (prints continuously)
