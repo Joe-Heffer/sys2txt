@@ -5,11 +5,32 @@ import argparse
 import os
 import sys
 import tempfile
+from datetime import datetime
 
 from .audio import record_once, segment_and_transcribe_live
 from .constants import WHISPER_MODEL
 from .pulse import get_default_monitor_source, list_pulse_sources
 from .transcribe import transcribe_file
+
+
+def get_timestamp_filename() -> str:
+    """Generate a timestamp-based filename for output files.
+
+    Returns:
+        A filename string in the format: YYYY-MM-DD_HH-MM-SS.txt
+    """
+    return datetime.now().strftime("%Y-%m-%d_%H-%M-%S.txt")
+
+
+def ensure_output_dir() -> str:
+    """Ensure the output directory exists and return its path.
+
+    Returns:
+        Absolute path to the output directory
+    """
+    output_dir = os.path.join(os.getcwd(), "output")
+    os.makedirs(output_dir, exist_ok=True)
+    return output_dir
 
 
 def main():
@@ -59,6 +80,15 @@ def main():
     source = args.source or get_default_monitor_source()
 
     if args.mode == "once":
+        # Determine output file path
+        output_dir = ensure_output_dir()
+        if args.output:
+            # If user specified a path, use it as-is (could be relative or absolute)
+            output_file = args.output
+        else:
+            # Generate timestamp-based filename in output/ directory
+            output_file = os.path.join(output_dir, get_timestamp_filename())
+
         if args.input:
             audio_path = args.input
         else:
@@ -75,9 +105,9 @@ def main():
                     timestamps=args.timestamps,
                 )
                 print(text)
-                if args.output:
-                    with open(args.output, "w", encoding="utf-8") as w:
-                        w.write(text + "\n")
+                with open(output_file, "w", encoding="utf-8") as w:
+                    w.write(text + "\n")
+                print(f"Transcript saved to: {output_file}")
                 return
         # If input provided, just transcribe it
         text = transcribe_file(
@@ -88,11 +118,21 @@ def main():
             timestamps=args.timestamps,
         )
         print(text)
-        if args.output:
-            with open(args.output, "w", encoding="utf-8") as w:
-                w.write(text + "\n")
+        with open(output_file, "w", encoding="utf-8") as w:
+            w.write(text + "\n")
+        print(f"Transcript saved to: {output_file}")
 
     elif args.mode == "live":
+        # Determine output file path
+        output_dir = ensure_output_dir()
+        if args.output:
+            # If user specified a path, use it as-is (could be relative or absolute)
+            output_file = args.output
+        else:
+            # Generate timestamp-based filename in output/ directory
+            output_file = os.path.join(output_dir, get_timestamp_filename())
+
+        print(f"Live transcript will be saved to: {output_file}")
 
         def transcribe_segment(file_path: str, segment_index: int) -> str:
             """Transcribe a segment and format with optional timestamp prefix."""
@@ -118,7 +158,7 @@ def main():
             channels=1,
             segment_seconds=args.segment_seconds,
             transcribe_callback=transcribe_segment,
-            output_path=args.output,
+            output_path=output_file,
         )
 
 
