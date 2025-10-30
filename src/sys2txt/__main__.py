@@ -7,6 +7,7 @@ import sys
 import tempfile
 
 from .audio import record_once, segment_and_transcribe_live
+from .constants import WHISPER_MODEL
 from .pulse import get_default_monitor_source, list_pulse_sources
 from .transcribe import transcribe_file
 
@@ -23,8 +24,8 @@ def main():
     common.add_argument(
         "--model",
         dest="model_size",
-        default="small",
-        help="Whisper model size (default: small)",
+        default=WHISPER_MODEL,
+        help=f"Whisper model size (default: {WHISPER_MODEL})",
     )
     common.add_argument(
         "--engine", choices=["auto", "faster", "whisper"], default="auto", help="Transcription engine (default: auto)"
