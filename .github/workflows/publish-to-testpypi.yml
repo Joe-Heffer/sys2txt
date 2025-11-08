@@ -5,6 +5,9 @@ on:
     tags:
       - 'v*-rc*'  # Trigger on release candidate tags like v0.1.0-rc1
 
+permissions:
+  contents: read
+
 jobs:
   build:
     name: Build distribution
