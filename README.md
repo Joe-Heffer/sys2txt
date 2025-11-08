@@ -130,23 +130,12 @@ whisper out.wav --model small --task transcribe --language en
 - For better performance on CPU, use faster-whisper with model `base` or `small`. For the best accuracy, use `medium` or `large-v2` (these are heavier).
 - GPU acceleration for faster-whisper requires a compatible ctranslate2 CUDA wheel. Set `SYS2TXT_DEVICE=cuda` to enable it. If not available, it will run on CPU.
 
-## Development
+## Contributing
 
-Install with development dependencies:
+Contributions are welcome! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for:
+- Development setup and workflow
+- Running tests and code quality checks
+- Release process and CI/CD workflows
+- Pull request guidelines
 
-```bash
-pip install -e ".[dev]"
-```
-
-Run unit tests:
-
-```bash
-python -m unittest discover -s tests -p "test_*.py"
-```
-
-Format and lint code:
-
-```bash
-ruff format src/
-ruff check src/
-```
+For security issues, please see [SECURITY.md](SECURITY.md).
