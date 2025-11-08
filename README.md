@@ -38,12 +38,14 @@ sudo apt install -y ffmpeg python3-venv python3-pip
 cd sys2txt
 python3 -m venv .venv
 source .venv/bin/activate
-pip install -e .
+pip install sys2txt
 ```
 
 This installs both faster-whisper (for speed) and openai-whisper (reference implementation). The tool auto-selects faster-whisper when available or falls back to openai-whisper.
 
-## Quick start
+## Usage
+
+### Quick start
 
 Record and transcribe once (press Ctrl-C to stop recording):
 
