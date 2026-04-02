@@ -8,7 +8,10 @@ sys2txt is a CLI tool for recording Ubuntu system audio (via PulseAudio/PipeWire
 - **once**: Record until stopped, then transcribe once
 - **live**: Segment recording every N seconds and transcribe continuously
 
-The tool automatically selects faster-whisper (ctranslate2) for better performance when available, falling back to openai-whisper if not.
+The tool supports three transcription engines:
+- **faster-whisper**: Primary engine (ctranslate2), auto-selected when available
+- **openai-whisper**: Fallback reference implementation
+- **whisper.cpp**: Optional C++ implementation with Vulkan GPU support for AMD GPUs
 
 ## Development Setup
 
@@ -53,12 +56,15 @@ Alternatively, run as a module without installing: `python -m sys2txt once --mod
 Common flags:
 - `--source <name>`: Specify PulseAudio/PipeWire source (e.g., `alsa_output.pci-0000_00_1f.3.analog-stereo.monitor`)
 - `--model {tiny,base,small,medium,large-v2}`: Whisper model size (default: small)
-- `--engine {auto,faster,whisper}`: Force specific engine (default: auto)
+- `--engine {auto,faster,whisper,cpp}`: Force specific engine (default: auto)
+- `--device {auto,cpu,vulkan,gpu,cuda}`: Device for transcription (default: auto)
 - `--language <code>`: Force language code (e.g., en)
 - `--output <path>`: Write transcript to file
 - `--duration <seconds>`: (once mode) Fixed recording duration
 - `--segment-seconds <n>`: (live mode) Segment length (default: 8)
 - `--timestamps`: Include timestamps in output
+- `--model-path <path>`: Path to whisper.cpp model file (for cpp engine)
+- `--whisper-cpp-path <path>`: Path to whisper-cli binary (for cpp engine)
 
 ## Architecture
 
@@ -77,10 +83,14 @@ The codebase is organized into focused modules by functionality:
 - `run_command()`: Helper for running system commands
 
 **transcribe.py** - Whisper transcription:
-- `transcribe_file()`: Auto-selects engine (faster-whisper preferred, openai-whisper fallback)
-- `_transcribe_faster_whisper()`: Uses faster_whisper.WhisperModel with VAD filter, device selection via SYS2TXT_DEVICE env var (default: CPU int8)
+- `transcribe_file()`: Main entry point, dispatches to appropriate engine
+- `_transcribe_faster_whisper()`: Uses faster_whisper.WhisperModel with VAD filter
 - `_transcribe_openai_whisper()`: Uses whisper.load_model() and model.transcribe()
-- Both support timestamps flag for per-segment timing output
+- `_transcribe_whisper_cpp()`: Runs whisper-cli subprocess with GPU/CPU support
+- `_resolve_whisper_cpp_binary()`: Resolves whisper-cli path from arg/env/PATH
+- `_resolve_whisper_cpp_model_path()`: Resolves model path from arg/env/default
+- `_parse_whisper_cpp_output()`: Parses whisper.cpp output format
+- All engines support timestamps flag for per-segment timing output
 
 **utils.py** - Utility functions:
 - `which()`: Find command in PATH or raise RuntimeError
@@ -95,9 +105,22 @@ The codebase is organized into focused modules by functionality:
 - **pactl**: System command for PulseAudio/PipeWire source enumeration
 - **faster-whisper**: Primary transcription engine (optional, auto-detected)
 - **openai-whisper**: Fallback transcription engine
+- **whisper.cpp**: Optional C++ engine with Vulkan GPU support (external binary)
 
 ### GPU Acceleration
-Set `SYS2TXT_DEVICE=cuda` environment variable to enable CUDA acceleration for faster-whisper (requires compatible ctranslate2 build with CUDA support).
+
+**For faster-whisper (CUDA/NVIDIA):**
+- Set `SYS2TXT_DEVICE=cuda` or use `--device cuda`
+- Requires compatible ctranslate2 build with CUDA support
+
+**For whisper.cpp (Vulkan/AMD):**
+- Build whisper.cpp with `-DGGML_VULKAN=1` cmake flag
+- GPU is used by default; use `--device cpu` to force CPU
+
+### Environment Variables
+- `SYS2TXT_DEVICE`: Device selection for faster-whisper (`cpu`, `cuda`)
+- `SYS2TXT_WHISPER_CPP`: Path to whisper-cli binary
+- `SYS2TXT_WHISPER_CPP_MODELS`: Directory containing whisper.cpp model files (e.g., `ggml-small.bin`)
 
 ## Continuous Integration & Deployment
 
