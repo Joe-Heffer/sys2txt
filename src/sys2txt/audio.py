@@ -57,6 +57,23 @@ def record_once(source: str, out_wav: str, sample_rate: int, channels: int, dura
     print("Recording finished.")
 
 
+def _process_segment_file(f, tmp, processed, transcribe_callback, output_path):
+    """Process a single finalized segment file: transcribe and print/write output."""
+    full = os.path.join(tmp, f)
+    if os.path.getsize(full) < 64:
+        return
+    processed.add(f)
+    try:
+        idx = int(os.path.splitext(f)[0].split("_")[-1])
+    except Exception:
+        idx = 0
+    text = transcribe_callback(full, idx)
+    print(text, flush=True)
+    if output_path:
+        with open(output_path, "a", encoding="utf-8") as w:
+            w.write(text + "\n")
+
+
 def segment_and_transcribe_live(
     source: str,
     sample_rate: int,
@@ -113,44 +130,15 @@ def segment_and_transcribe_live(
                 safe_to_process = files[:-1] if len(files) > 1 else []
                 new_files = [f for f in safe_to_process if f not in processed]
                 for f in new_files:
-                    full = os.path.join(tmp, f)
-                    # Ensure the segment has been finalized and has content
-                    if os.path.getsize(full) < 64:
-                        continue
-                    processed.add(f)
-
-                    # Extract segment index from filename
-                    try:
-                        idx = int(os.path.splitext(f)[0].split("_")[-1])
-                    except Exception:
-                        idx = 0
-
-                    text = transcribe_callback(full, idx)
-                    print(text, flush=True)
-                    if output_path:
-                        with open(output_path, "a", encoding="utf-8") as w:
-                            w.write(text + "\n")
+                    _process_segment_file(f, tmp, processed, transcribe_callback, output_path)
 
                 # If ffmpeg has exited and no new files pending, break
                 ret = proc.poll()
                 if ret is not None:
-                    # flush remaining unprocessed files
+                    # flush remaining unprocessed files (including the last segment)
                     files = sorted(f for f in os.listdir(tmp) if f.startswith("seg_") and f.endswith(".wav"))
-                    new_files = [f for f in files if f not in processed]
-                    for f in new_files:
-                        full = os.path.join(tmp, f)
-                        if os.path.getsize(full) < 64:
-                            continue
-                        processed.add(f)
-                        try:
-                            idx = int(os.path.splitext(f)[0].split("_")[-1])
-                        except Exception:
-                            idx = 0
-                        text = transcribe_callback(full, idx)
-                        print(text, flush=True)
-                        if output_path:
-                            with open(output_path, "a", encoding="utf-8") as w:
-                                w.write(text + "\n")
+                    for f in [f for f in files if f not in processed]:
+                        _process_segment_file(f, tmp, processed, transcribe_callback, output_path)
                     break
                 time.sleep(0.3)
         except KeyboardInterrupt:

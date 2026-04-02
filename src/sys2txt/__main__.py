@@ -61,7 +61,10 @@ def main():
         "--device",
         choices=["auto", "cpu", "vulkan", "gpu", "cuda"],
         default="auto",
-        help="Device to use for transcription (default: auto)",
+        help=(
+            "Device for transcription: cpu (force CPU), cuda (NVIDIA, faster-whisper only), "
+            "vulkan/gpu (AMD/Vulkan, whisper.cpp only), auto (default, let engine decide)"
+        ),
     )
     common.add_argument(
         "--model-path",
@@ -84,6 +87,12 @@ def main():
     live.add_argument("--output", default=None, help="Append live transcript to this file as it's produced")
 
     args = parser.parse_args()
+
+    if args.engine not in ("cpp", "auto"):
+        if args.model_path:
+            print("Warning: --model-path is only used with --engine cpp", file=sys.stderr)
+        if args.whisper_cpp_path:
+            print("Warning: --whisper-cpp-path is only used with --engine cpp", file=sys.stderr)
 
     if args.list_sources:
         sources = list_pulse_sources()

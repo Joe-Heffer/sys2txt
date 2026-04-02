@@ -235,11 +235,14 @@ def _timestamp_to_seconds(ts: str) -> float:
     Returns:
         Time in seconds as float
     """
-    parts = ts.split(":")
-    hours = int(parts[0])
-    minutes = int(parts[1])
-    seconds = float(parts[2])
-    return hours * 3600 + minutes * 60 + seconds
+    try:
+        parts = ts.split(":")
+        hours = int(parts[0])
+        minutes = int(parts[1])
+        seconds = float(parts[2])
+        return hours * 3600 + minutes * 60 + seconds
+    except (IndexError, ValueError):
+        return 0.0
 
 
 def _transcribe_whisper_cpp(
