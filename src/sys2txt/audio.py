@@ -107,7 +107,11 @@ def segment_and_transcribe_live(
             while True:
                 # sorted ensures we process in chronological order
                 files = sorted(f for f in os.listdir(tmp) if f.startswith("seg_") and f.endswith(".wav"))
-                new_files = [f for f in files if f not in processed]
+                # While ffmpeg is running, the last file is always the one currently
+                # being written. Only process files that have been finalized, which is
+                # guaranteed when a newer segment exists after them.
+                safe_to_process = files[:-1] if len(files) > 1 else []
+                new_files = [f for f in safe_to_process if f not in processed]
                 for f in new_files:
                     full = os.path.join(tmp, f)
                     # Ensure the segment has been finalized and has content
