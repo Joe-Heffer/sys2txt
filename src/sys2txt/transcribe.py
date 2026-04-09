@@ -4,6 +4,7 @@ import os
 import re
 import shutil
 import subprocess
+import threading
 from pathlib import Path
 from typing import Optional
 
@@ -12,6 +13,7 @@ _faster_whisper_model = None
 _faster_whisper_model_key: Optional[tuple] = None
 _openai_whisper_model = None
 _openai_whisper_model_key: Optional[str] = None
+_model_cache_lock = threading.Lock()
 
 
 def transcribe_file(
@@ -80,10 +82,11 @@ def _transcribe_faster_whisper(
 
     global _faster_whisper_model, _faster_whisper_model_key
     key = (model_size, fw_device, compute_type)
-    if _faster_whisper_model_key != key:
-        _faster_whisper_model = WhisperModel(model_size, device=fw_device, compute_type=compute_type)
-        _faster_whisper_model_key = key
-    model = _faster_whisper_model
+    with _model_cache_lock:
+        if _faster_whisper_model_key != key:
+            _faster_whisper_model = WhisperModel(model_size, device=fw_device, compute_type=compute_type)
+            _faster_whisper_model_key = key
+        model = _faster_whisper_model
     segments, info = model.transcribe(path, vad_filter=True, language=language)
     if timestamps:
         lines = []
@@ -104,10 +107,11 @@ def _transcribe_openai_whisper(path: str, model_size: str, language: Optional[st
         raise RuntimeError("openai-whisper is not installed. pip install openai-whisper") from e
 
     global _openai_whisper_model, _openai_whisper_model_key
-    if _openai_whisper_model_key != model_size:
-        _openai_whisper_model = whisper.load_model(model_size)
-        _openai_whisper_model_key = model_size
-    model = _openai_whisper_model
+    with _model_cache_lock:
+        if _openai_whisper_model_key != model_size:
+            _openai_whisper_model = whisper.load_model(model_size)
+            _openai_whisper_model_key = model_size
+        model = _openai_whisper_model
     result = model.transcribe(path, language=language)
     if timestamps and "segments" in result:
         lines = []
