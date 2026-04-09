@@ -43,10 +43,18 @@ sudo apt install -y ffmpeg python3-venv python3-pip
 cd sys2txt
 python3 -m venv .venv
 source .venv/bin/activate
-pip install sys2txt
 ```
 
-This installs both faster-whisper (for speed) and openai-whisper (reference implementation). The tool auto-selects faster-whisper when available or falls back to openai-whisper.
+Install with your preferred engine:
+
+```bash
+pip install sys2txt[faster]   # faster-whisper (recommended, best for CPU and NVIDIA)
+pip install sys2txt[openai]   # openai-whisper (reference implementation)
+pip install sys2txt[all]      # install both engines
+pip install sys2txt           # no Python engine (use whisper.cpp instead)
+```
+
+The tool auto-selects `faster-whisper` when available, falls back to `openai-whisper`, then falls back to `whisper.cpp`.
 
 ## Usage
 

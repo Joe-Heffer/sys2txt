@@ -12,15 +12,15 @@ license = {text = "MIT"}
 authors = [
     {name = "Joe Heffer", email = "jheffer@gmail.com"}
 ]
-dependencies = [
-    "faster-whisper>=1.0.0",
-    "openai-whisper>=20231117",
-]
+dependencies = []
 
 [project.scripts]
 sys2txt = "sys2txt.__main__:main"
 
 [project.optional-dependencies]
+faster = ["faster-whisper>=1.0.0"]
+openai = ["openai-whisper>=20231117"]
+all = ["faster-whisper>=1.0.0", "openai-whisper>=20231117"]
 dev = [
     "ruff>=0.8.0",
 ]

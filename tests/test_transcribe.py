@@ -1,6 +1,7 @@
 """Tests for sys2txt.transcribe module."""
 
 import os
+import sys
 import unittest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -13,11 +14,10 @@ class TestTranscribeFile(unittest.TestCase):
 
     def test_transcribe_file_auto_selects_faster_whisper(self):
         """Test transcribe_file() auto-selects faster-whisper when available."""
-        # Mock faster_whisper import being successful
-        with patch("sys2txt.transcribe._transcribe_faster_whisper") as mock_transcribe:
-            mock_transcribe.return_value = "test transcript"
-            # The actual import will succeed since faster_whisper is installed
-            result = transcribe_file("/path/to/audio.wav", TranscriptionConfig())
+        with patch.dict("sys.modules", {"faster_whisper": MagicMock()}):
+            with patch("sys2txt.transcribe._transcribe_faster_whisper") as mock_transcribe:
+                mock_transcribe.return_value = "test transcript"
+                result = transcribe_file("/path/to/audio.wav", TranscriptionConfig())
 
         self.assertEqual(result, "test transcript")
         mock_transcribe.assert_called_once_with("/path/to/audio.wav", "small", None, False, "auto")
@@ -73,13 +73,24 @@ class TestTranscribeFile(unittest.TestCase):
 
     def test_transcribe_file_auto_falls_back_to_openai_whisper(self):
         """Test transcribe_file() auto falls back to openai-whisper when faster-whisper is not installed."""
-        with patch.dict("sys.modules", {"faster_whisper": None}):
+        with patch.dict("sys.modules", {"faster_whisper": None, "whisper": MagicMock()}):
             with patch("sys2txt.transcribe._transcribe_openai_whisper") as mock_transcribe:
                 mock_transcribe.return_value = "fallback transcript"
                 result = transcribe_file("/path/to/audio.wav", TranscriptionConfig())
 
         self.assertEqual(result, "fallback transcript")
         mock_transcribe.assert_called_once_with("/path/to/audio.wav", "small", None, False)
+
+    def test_transcribe_file_auto_falls_back_to_cpp(self):
+        """Test transcribe_file() auto falls back to whisper.cpp when neither Python engine is installed."""
+        with patch.dict("sys.modules", {"faster_whisper": None, "whisper": None}):
+            with patch("sys2txt.transcribe._transcribe_whisper_cpp") as mock_transcribe:
+                mock_transcribe.return_value = "cpp fallback transcript"
+                config = TranscriptionConfig()
+                result = transcribe_file("/path/to/audio.wav", config)
+
+        self.assertEqual(result, "cpp fallback transcript")
+        mock_transcribe.assert_called_once_with("/path/to/audio.wav", "small", None, False, None, None, "auto")
 
     def test_transcribe_file_invalid_engine(self):
         """Test transcribe_file() raises ValueError for invalid engine."""
@@ -99,6 +110,11 @@ class TestTranscribeFasterWhisper(unittest.TestCase):
 
         t._faster_whisper_model = None
         t._faster_whisper_model_key = None
+
+        if "faster_whisper" not in sys.modules:
+            patcher = patch.dict("sys.modules", {"faster_whisper": MagicMock()})
+            patcher.start()
+            self.addCleanup(patcher.stop)
 
     @patch("faster_whisper.WhisperModel")
     def test_transcribe_faster_whisper_no_timestamps(self, mock_model_class):
@@ -207,6 +223,11 @@ class TestTranscribeOpenAIWhisper(unittest.TestCase):
 
         t._openai_whisper_model = None
         t._openai_whisper_model_key = None
+
+        if "whisper" not in sys.modules:
+            patcher = patch.dict("sys.modules", {"whisper": MagicMock()})
+            patcher.start()
+            self.addCleanup(patcher.stop)
 
     @patch("whisper.load_model")
     def test_transcribe_openai_whisper_no_timestamps(self, mock_load_model):
@@ -581,6 +602,11 @@ class TestModelCacheThreadSafety(unittest.TestCase):
 
         t._faster_whisper_model = None
         t._faster_whisper_model_key = None
+
+        if "faster_whisper" not in sys.modules:
+            patcher = patch.dict("sys.modules", {"faster_whisper": MagicMock()})
+            patcher.start()
+            self.addCleanup(patcher.stop)
 
     @patch("faster_whisper.WhisperModel")
     def test_concurrent_calls_load_model_once(self, mock_model_class):

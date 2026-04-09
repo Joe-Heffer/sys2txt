@@ -48,7 +48,12 @@ def transcribe_file(path: str, config: TranscriptionConfig) -> str:
 
             engine = "faster"
         except ImportError:
-            engine = "whisper"
+            try:
+                import whisper  # noqa: F401
+
+                engine = "whisper"
+            except ImportError:
+                engine = "cpp"
 
     if engine == "faster":
         return _transcribe_faster_whisper(path, config.model, config.language, config.timestamps, config.device)
