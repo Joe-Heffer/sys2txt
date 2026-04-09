@@ -270,6 +270,111 @@ class TestSegmentAndTranscribeLive(unittest.TestCase):
         call_path = transcribe_callback.call_args_list[0][0][0]
         self.assertIn("seg_00000", call_path)
 
+    @patch("sys2txt.audio.which")
+    @patch("sys2txt.audio.subprocess.Popen")
+    @patch("sys2txt.audio.time.sleep")
+    @patch("sys2txt.audio.os.listdir")
+    @patch("sys2txt.audio.os.path.getsize")
+    def test_silence_timeout_triggers_shutdown(self, mock_getsize, mock_listdir, mock_sleep, mock_popen, mock_which):
+        """Test that silence_timeout stops live mode after enough consecutive silent segments."""
+        mock_which.return_value = "/usr/bin/ffmpeg"
+        mock_proc = MagicMock()
+        # ffmpeg keeps running; silence timeout should stop it
+        mock_proc.poll.return_value = None
+        mock_proc.stdin = MagicMock()
+        mock_proc.wait.return_value = None
+        mock_popen.return_value = mock_proc
+
+        # Two segments processed, both silent — with segment_seconds=8 and silence_timeout=16
+        mock_listdir.side_effect = [
+            ["seg_00000.wav", "seg_00001.wav"],  # seg_00000 safe
+            ["seg_00000.wav", "seg_00001.wav", "seg_00002.wav"],  # seg_00001 safe
+        ]
+        mock_getsize.return_value = 1024
+
+        transcribe_callback = MagicMock(return_value="")
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with patch("sys2txt.audio.tempfile.TemporaryDirectory") as mock_tmpdir:
+                mock_tmpdir.return_value.__enter__.return_value = tmpdir
+                segment_and_transcribe_live("test.monitor", 16000, 1, 8, transcribe_callback, None, silence_timeout=16)
+
+        # Verify graceful shutdown — 'q' sent to ffmpeg
+        mock_proc.stdin.write.assert_called_once_with(b"q")
+        mock_proc.stdin.flush.assert_called_once()
+        mock_proc.stdin.close.assert_called_once()
+
+    @patch("sys2txt.audio.which")
+    @patch("sys2txt.audio.subprocess.Popen")
+    @patch("sys2txt.audio.time.sleep")
+    @patch("sys2txt.audio.os.listdir")
+    @patch("sys2txt.audio.os.path.getsize")
+    def test_silence_timeout_resets_on_speech(self, mock_getsize, mock_listdir, mock_sleep, mock_popen, mock_which):
+        """Test that the silence counter resets when speech is detected."""
+        mock_which.return_value = "/usr/bin/ffmpeg"
+        mock_proc = MagicMock()
+        # ffmpeg exits after processing all segments
+        mock_proc.poll.side_effect = [None, None, None, 0]
+        mock_proc.stdin = MagicMock()
+        mock_popen.return_value = mock_proc
+
+        # Three segments: silent, speech, silent — should NOT trigger timeout at 16s
+        all_files = ["seg_00000.wav", "seg_00001.wav", "seg_00002.wav", "seg_00003.wav"]
+        mock_listdir.side_effect = [
+            all_files[:2],  # iter 1: seg_00000 safe (silent)
+            all_files[:3],  # iter 2: seg_00001 safe (speech)
+            all_files[:4],  # iter 3: seg_00002 safe (silent)
+            all_files[:4],  # iter 4: nothing new safe, poll returns 0
+            all_files[:4],  # flush path: seg_00003
+        ]
+        mock_getsize.return_value = 1024
+
+        transcribe_callback = MagicMock(side_effect=["", "hello world", "", ""])
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with patch("sys2txt.audio.tempfile.TemporaryDirectory") as mock_tmpdir:
+                mock_tmpdir.return_value.__enter__.return_value = tmpdir
+                segment_and_transcribe_live("test.monitor", 16000, 1, 8, transcribe_callback, None, silence_timeout=16)
+
+        # All 4 segments were transcribed (no premature shutdown)
+        self.assertEqual(transcribe_callback.call_count, 4)
+        # ffmpeg was NOT sent 'q' — it exited naturally
+        mock_proc.stdin.write.assert_not_called()
+
+    @patch("sys2txt.audio.which")
+    @patch("sys2txt.audio.subprocess.Popen")
+    @patch("sys2txt.audio.time.sleep")
+    @patch("sys2txt.audio.os.listdir")
+    @patch("sys2txt.audio.os.path.getsize")
+    def test_silence_timeout_disabled_by_default(self, mock_getsize, mock_listdir, mock_sleep, mock_popen, mock_which):
+        """Test that silence_timeout=0 (default) does not trigger auto-stop."""
+        mock_which.return_value = "/usr/bin/ffmpeg"
+        mock_proc = MagicMock()
+        mock_proc.poll.side_effect = [None, None, 0]
+        mock_proc.stdin = MagicMock()
+        mock_popen.return_value = mock_proc
+
+        # Three silent segments — should NOT trigger timeout when disabled
+        all_files = ["seg_00000.wav", "seg_00001.wav", "seg_00002.wav"]
+        mock_listdir.side_effect = [
+            all_files[:2],  # iter 1: seg_00000 safe
+            all_files[:3],  # iter 2: seg_00001 safe
+            all_files[:3],  # iter 3: nothing new, poll returns 0
+            all_files[:3],  # flush: seg_00002
+        ]
+        mock_getsize.return_value = 1024
+
+        transcribe_callback = MagicMock(return_value="")
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with patch("sys2txt.audio.tempfile.TemporaryDirectory") as mock_tmpdir:
+                mock_tmpdir.return_value.__enter__.return_value = tmpdir
+                segment_and_transcribe_live("test.monitor", 16000, 1, 8, transcribe_callback, None, silence_timeout=0)
+
+        # All segments processed, no premature shutdown
+        self.assertEqual(transcribe_callback.call_count, 3)
+        mock_proc.stdin.write.assert_not_called()
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -62,6 +62,7 @@ Common flags:
 - `--output <path>`: Write transcript to file
 - `--duration <seconds>`: (once mode) Fixed recording duration
 - `--segment-seconds <n>`: (live mode) Segment length (default: 8)
+- `--silence-timeout <seconds>`: (live mode) Auto-stop after N consecutive seconds of silence (0=disabled, default: 0)
 - `--timestamps`: Include timestamps in output
 - `--model-path <path>`: Path to whisper.cpp model file (for cpp engine)
 - `--whisper-cpp-path <path>`: Path to whisper-cli binary (for cpp engine)

@@ -132,6 +132,12 @@ def main():
     live = sub.add_parser("live", parents=[common], help="Segmented live transcription")
     live.add_argument("--segment-seconds", type=int, default=8, help="Segment length in seconds (default: 8)")
     live.add_argument("--output", default=None, help="Append live transcript to this file as it's produced")
+    live.add_argument(
+        "--silence-timeout",
+        type=int,
+        default=0,
+        help="Auto-stop after N consecutive seconds of silence (0=disabled, default: 0)",
+    )
 
     args = parser.parse_args()
 
@@ -192,6 +198,7 @@ def main():
             segment_seconds=args.segment_seconds,
             transcribe_callback=transcribe_segment,
             output_path=output_file,
+            silence_timeout=args.silence_timeout,
         )
 
 
