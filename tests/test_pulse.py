@@ -121,7 +121,7 @@ class TestGetDefaultMonitorSource(unittest.TestCase):
     @patch("sys2txt.pulse.run_command")
     def test_get_default_monitor_source_exception(self, mock_run, mock_list):
         """Test get_default_monitor_source() handles exceptions gracefully."""
-        mock_run.side_effect = Exception("Unexpected error")
+        mock_run.side_effect = RuntimeError("Unexpected error")
         mock_list.return_value = []
 
         source = get_default_monitor_source()

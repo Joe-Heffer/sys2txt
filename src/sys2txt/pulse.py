@@ -43,6 +43,6 @@ def get_default_monitor_source() -> str:
         for s, _ in list_pulse_sources():
             if s.endswith(".monitor"):
                 return s
-    except Exception:
+    except (FileNotFoundError, RuntimeError):
         pass
     return "default"

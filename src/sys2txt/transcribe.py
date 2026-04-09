@@ -64,7 +64,7 @@ def _transcribe_faster_whisper(
     """Transcribe using faster-whisper (ctranslate2 backend)."""
     try:
         from faster_whisper import WhisperModel  # type: ignore
-    except Exception as e:
+    except ImportError as e:
         raise RuntimeError("faster-whisper is not installed. pip install faster-whisper") from e
 
     # Device selection: CLI arg > env var > default (cpu)
@@ -100,7 +100,7 @@ def _transcribe_openai_whisper(path: str, model_size: str, language: Optional[st
     """Transcribe using openai-whisper (reference implementation)."""
     try:
         import whisper  # type: ignore
-    except Exception as e:
+    except ImportError as e:
         raise RuntimeError("openai-whisper is not installed. pip install openai-whisper") from e
 
     global _openai_whisper_model, _openai_whisper_model_key

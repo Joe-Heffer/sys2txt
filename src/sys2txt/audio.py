@@ -53,7 +53,7 @@ def record_once(source: str, out_wav: str, sample_rate: int, channels: int, dura
     except KeyboardInterrupt:
         try:
             proc.send_signal(signal.SIGINT)
-        except Exception:
+        except OSError:
             pass
         proc.wait()
     print("Recording finished.")
@@ -67,7 +67,7 @@ def _process_segment_file(f, tmp, processed, transcribe_callback, output_path, e
     processed.add(f)
     try:
         idx = int(os.path.splitext(f)[0].split("_")[-1])
-    except Exception:
+    except (ValueError, IndexError):
         idx = 0
     if executor and timeout:
         future = executor.submit(transcribe_callback, full, idx)
@@ -177,6 +177,6 @@ def segment_and_transcribe_live(
                     # If it doesn't finish in time, terminate it
                     proc.terminate()
                     proc.wait()
-            except Exception:
+            except OSError:
                 pass
             print("Stopped live capture.")
