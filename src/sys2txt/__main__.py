@@ -2,6 +2,7 @@
 """Main entry point for sys2txt CLI."""
 
 import argparse
+import logging
 import os
 import sys
 import tempfile
@@ -33,9 +34,28 @@ def ensure_output_dir() -> str:
     return output_dir
 
 
+logger = logging.getLogger(__name__)
+
+
+def _configure_logging(verbose: bool, quiet: bool) -> None:
+    """Configure logging based on CLI flags and LOG_LEVEL environment variable."""
+    level_name = os.environ.get("LOG_LEVEL", "").upper()
+    if level_name and hasattr(logging, level_name):
+        level = getattr(logging, level_name)
+    elif quiet:
+        level = logging.WARNING
+    elif verbose:
+        level = logging.DEBUG
+    else:
+        level = logging.INFO
+    logging.basicConfig(level=level, format="%(levelname)s: %(message)s", stream=sys.stderr)
+
+
 def main():
     """Main CLI entry point."""
     parser = argparse.ArgumentParser(description="Record Ubuntu system audio and transcribe with Whisper.")
+    parser.add_argument("--verbose", "-v", action="store_true", help="Enable verbose (debug) logging")
+    parser.add_argument("--quiet", "-q", action="store_true", help="Suppress informational log messages")
     sub = parser.add_subparsers(dest="mode", required=True)
 
     common = argparse.ArgumentParser(add_help=False)
@@ -88,16 +108,18 @@ def main():
 
     args = parser.parse_args()
 
+    _configure_logging(verbose=args.verbose, quiet=args.quiet)
+
     if args.engine not in ("cpp", "auto"):
         if args.model_path:
-            print("Warning: --model-path is only used with --engine cpp", file=sys.stderr)
+            logger.warning("--model-path is only used with --engine cpp")
         if args.whisper_cpp_path:
-            print("Warning: --whisper-cpp-path is only used with --engine cpp", file=sys.stderr)
+            logger.warning("--whisper-cpp-path is only used with --engine cpp")
 
     if args.list_sources:
         sources = list_pulse_sources()
         if not sources:
-            print("No PulseAudio sources found. Is PulseAudio/PipeWire running?", file=sys.stderr)
+            logger.error("No PulseAudio sources found. Is PulseAudio/PipeWire running?")
             sys.exit(1)
         print("Available PulseAudio sources:")
         for name, _ in sources:
@@ -138,7 +160,7 @@ def main():
                 print(text)
                 with open(output_file, "w", encoding="utf-8") as w:
                     w.write(text + "\n")
-                print(f"Transcript saved to: {output_file}")
+                logger.info("Transcript saved to: %s", output_file)
                 return
         # If input provided, just transcribe it
         text = transcribe_file(
@@ -154,7 +176,7 @@ def main():
         print(text)
         with open(output_file, "w", encoding="utf-8") as w:
             w.write(text + "\n")
-        print(f"Transcript saved to: {output_file}")
+        logger.info("Transcript saved to: %s", output_file)
 
     elif args.mode == "live":
         # Determine output file path
@@ -166,7 +188,7 @@ def main():
             # Generate timestamp-based filename in output/ directory
             output_file = os.path.join(output_dir, get_timestamp_filename())
 
-        print(f"Live transcript will be saved to: {output_file}")
+        logger.info("Live transcript will be saved to: %s", output_file)
 
         def transcribe_segment(file_path: str, segment_index: int) -> str:
             """Transcribe a segment and format with optional timestamp prefix."""
@@ -203,7 +225,7 @@ if __name__ == "__main__":
     try:
         main()
     except RuntimeError as e:
-        print(f"Error: {e}", file=sys.stderr)
+        logger.error("%s", e)
         sys.exit(1)
     except KeyboardInterrupt:
         pass
