@@ -81,6 +81,13 @@ class TestTranscribeFile(unittest.TestCase):
 class TestTranscribeFasterWhisper(unittest.TestCase):
     """Tests for the _transcribe_faster_whisper() function."""
 
+    def setUp(self):
+        """Reset cached model between tests."""
+        import sys2txt.transcribe as t
+
+        t._faster_whisper_model = None
+        t._faster_whisper_model_key = None
+
     @patch("faster_whisper.WhisperModel")
     def test_transcribe_faster_whisper_no_timestamps(self, mock_model_class):
         """Test _transcribe_faster_whisper() without timestamps."""
@@ -181,6 +188,13 @@ class TestTranscribeFasterWhisper(unittest.TestCase):
 
 class TestTranscribeOpenAIWhisper(unittest.TestCase):
     """Tests for the _transcribe_openai_whisper() function."""
+
+    def setUp(self):
+        """Reset cached model between tests."""
+        import sys2txt.transcribe as t
+
+        t._openai_whisper_model = None
+        t._openai_whisper_model_key = None
 
     @patch("whisper.load_model")
     def test_transcribe_openai_whisper_no_timestamps(self, mock_load_model):

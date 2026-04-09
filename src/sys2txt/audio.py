@@ -5,6 +5,8 @@ import signal
 import subprocess
 import tempfile
 import time
+from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import TimeoutError as FuturesTimeoutError
 from typing import Optional
 
 from .utils import which
@@ -57,7 +59,7 @@ def record_once(source: str, out_wav: str, sample_rate: int, channels: int, dura
     print("Recording finished.")
 
 
-def _process_segment_file(f, tmp, processed, transcribe_callback, output_path):
+def _process_segment_file(f, tmp, processed, transcribe_callback, output_path, executor, timeout):
     """Process a single finalized segment file: transcribe and print/write output."""
     full = os.path.join(tmp, f)
     if os.path.getsize(full) < 64:
@@ -67,7 +69,18 @@ def _process_segment_file(f, tmp, processed, transcribe_callback, output_path):
         idx = int(os.path.splitext(f)[0].split("_")[-1])
     except Exception:
         idx = 0
-    text = transcribe_callback(full, idx)
+    if executor and timeout:
+        future = executor.submit(transcribe_callback, full, idx)
+        try:
+            text = future.result(timeout=timeout)
+        except FuturesTimeoutError:
+            print(f"[Warning] Segment {f} transcription timed out, skipping", flush=True)
+            return
+        except Exception as e:
+            print(f"[Warning] Segment {f} transcription failed: {e}", flush=True)
+            return
+    else:
+        text = transcribe_callback(full, idx)
     print(text, flush=True)
     if output_path:
         with open(output_path, "a", encoding="utf-8") as w:
@@ -120,6 +133,9 @@ def segment_and_transcribe_live(
         print(f"Live mode: segmenting every {segment_seconds}s from '{source}'. Press Ctrl-C to stop.")
         proc = subprocess.Popen(args, stdin=subprocess.PIPE, stderr=subprocess.PIPE)
         processed: set[str] = set()
+        # Timeout: allow generous time but prevent indefinite hangs
+        transcribe_timeout = max(segment_seconds * 5, 60)
+        executor = ThreadPoolExecutor(max_workers=1)
         try:
             while True:
                 # sorted ensures we process in chronological order
@@ -130,7 +146,9 @@ def segment_and_transcribe_live(
                 safe_to_process = files[:-1] if len(files) > 1 else []
                 new_files = [f for f in safe_to_process if f not in processed]
                 for f in new_files:
-                    _process_segment_file(f, tmp, processed, transcribe_callback, output_path)
+                    _process_segment_file(
+                        f, tmp, processed, transcribe_callback, output_path, executor, transcribe_timeout
+                    )
 
                 # If ffmpeg has exited and no new files pending, break
                 ret = proc.poll()
@@ -138,10 +156,13 @@ def segment_and_transcribe_live(
                     # flush remaining unprocessed files (including the last segment)
                     files = sorted(f for f in os.listdir(tmp) if f.startswith("seg_") and f.endswith(".wav"))
                     for f in [f for f in files if f not in processed]:
-                        _process_segment_file(f, tmp, processed, transcribe_callback, output_path)
+                        _process_segment_file(
+                            f, tmp, processed, transcribe_callback, output_path, executor, transcribe_timeout
+                        )
                     break
                 time.sleep(0.3)
         except KeyboardInterrupt:
+            executor.shutdown(wait=False)
             print("\nStopping live capture...")
             try:
                 # Send 'q' command to ffmpeg to quit gracefully
