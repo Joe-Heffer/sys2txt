@@ -1,5 +1,6 @@
 """Audio recording functionality using ffmpeg and PulseAudio/PipeWire."""
 
+import logging
 import os
 import signal
 import subprocess
@@ -10,6 +11,8 @@ from concurrent.futures import TimeoutError as FuturesTimeoutError
 from typing import Optional
 
 from .utils import which
+
+logger = logging.getLogger(__name__)
 
 
 def record_once(source: str, out_wav: str, sample_rate: int, channels: int, duration: Optional[int]) -> None:
@@ -44,8 +47,11 @@ def record_once(source: str, out_wav: str, sample_rate: int, channels: int, dura
         args.extend(["-t", str(duration)])
     args.append(out_wav)
 
-    print(f"Recording system audio from source '{source}' at {sample_rate} Hz, mono -> {out_wav}")
-    print("Press Ctrl-C to stop early..." if duration is None else f"Recording for {duration} seconds...")
+    logger.info("Recording system audio from source '%s' at %d Hz, mono -> %s", source, sample_rate, out_wav)
+    if duration is None:
+        logger.info("Press Ctrl-C to stop early...")
+    else:
+        logger.info("Recording for %d seconds...", duration)
 
     proc = subprocess.Popen(args)
     try:
@@ -56,7 +62,7 @@ def record_once(source: str, out_wav: str, sample_rate: int, channels: int, dura
         except OSError:
             pass
         proc.wait()
-    print("Recording finished.")
+    logger.info("Recording finished.")
 
 
 def _process_segment_file(f, tmp, processed, transcribe_callback, output_path, executor, timeout):
@@ -74,10 +80,10 @@ def _process_segment_file(f, tmp, processed, transcribe_callback, output_path, e
         try:
             text = future.result(timeout=timeout)
         except FuturesTimeoutError:
-            print(f"[Warning] Segment {f} transcription timed out, skipping", flush=True)
+            logger.warning("Segment %s transcription timed out, skipping", f)
             return
         except Exception as e:
-            print(f"[Warning] Segment {f} transcription failed: {e}", flush=True)
+            logger.warning("Segment %s transcription failed: %s", f, e)
             return
     else:
         text = transcribe_callback(full, idx)
@@ -130,7 +136,7 @@ def segment_and_transcribe_live(
             pattern,
         ]
 
-        print(f"Live mode: segmenting every {segment_seconds}s from '{source}'. Press Ctrl-C to stop.")
+        logger.info("Live mode: segmenting every %ds from '%s'. Press Ctrl-C to stop.", segment_seconds, source)
         proc = subprocess.Popen(args, stdin=subprocess.PIPE, stderr=subprocess.PIPE)
         processed: set[str] = set()
         # Timeout: allow generous time but prevent indefinite hangs
@@ -163,7 +169,7 @@ def segment_and_transcribe_live(
                 time.sleep(0.3)
         except KeyboardInterrupt:
             executor.shutdown(wait=False)
-            print("\nStopping live capture...")
+            logger.info("Stopping live capture...")
             try:
                 # Send 'q' command to ffmpeg to quit gracefully
                 if proc.stdin:
@@ -179,4 +185,4 @@ def segment_and_transcribe_live(
                     proc.wait()
             except OSError:
                 pass
-            print("Stopped live capture.")
+            logger.info("Stopped live capture.")
