@@ -84,7 +84,8 @@ The codebase is organized into focused modules by functionality:
 - `run_command()`: Helper for running system commands
 
 **transcribe.py** - Whisper transcription:
-- `transcribe_file()`: Main entry point, dispatches to appropriate engine
+- `TranscriptionConfig`: Dataclass bundling engine, model, device, language, timestamps, model_path, and whisper_cpp_path
+- `transcribe_file(path, config)`: Main entry point, takes a file path and `TranscriptionConfig`, dispatches to appropriate engine
 - `_transcribe_faster_whisper()`: Uses faster_whisper.WhisperModel with VAD filter
 - `_transcribe_openai_whisper()`: Uses whisper.load_model() and model.transcribe()
 - `_transcribe_whisper_cpp()`: Runs whisper-cli subprocess with GPU/CPU support

@@ -5,7 +5,8 @@ import unittest
 from argparse import Namespace
 from unittest.mock import mock_open, patch
 
-from sys2txt.__main__ import _build_transcribe_kwargs, _resolve_output_path, _save_transcript
+from sys2txt.__main__ import _build_transcription_config, _resolve_output_path, _save_transcript
+from sys2txt.transcribe import TranscriptionConfig
 
 
 class TestResolveOutputPath(unittest.TestCase):
@@ -22,8 +23,8 @@ class TestResolveOutputPath(unittest.TestCase):
         self.assertEqual(result, os.path.join("/out", "2024-01-01_00-00-00.txt"))
 
 
-class TestBuildTranscribeKwargs(unittest.TestCase):
-    def test_all_keys_present_with_correct_values(self):
+class TestBuildTranscriptionConfig(unittest.TestCase):
+    def test_returns_config_with_correct_values(self):
         args = Namespace(
             engine="faster",
             model_size="small",
@@ -33,19 +34,15 @@ class TestBuildTranscribeKwargs(unittest.TestCase):
             whisper_cpp_path="/usr/local/bin/whisper-cli",
             device="cpu",
         )
-        kwargs = _build_transcribe_kwargs(args)
-        self.assertEqual(
-            kwargs,
-            {
-                "engine": "faster",
-                "model_size": "small",
-                "language": "en",
-                "timestamps": True,
-                "model_path": "/models/ggml.bin",
-                "whisper_cpp_path": "/usr/local/bin/whisper-cli",
-                "device": "cpu",
-            },
-        )
+        config = _build_transcription_config(args)
+        self.assertIsInstance(config, TranscriptionConfig)
+        self.assertEqual(config.engine, "faster")
+        self.assertEqual(config.model, "small")
+        self.assertEqual(config.language, "en")
+        self.assertTrue(config.timestamps)
+        self.assertEqual(config.model_path, "/models/ggml.bin")
+        self.assertEqual(config.whisper_cpp_path, "/usr/local/bin/whisper-cli")
+        self.assertEqual(config.device, "cpu")
 
 
 class TestSaveTranscript(unittest.TestCase):

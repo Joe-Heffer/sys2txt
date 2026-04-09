@@ -5,7 +5,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-from sys2txt.transcribe import transcribe_file
+from sys2txt.transcribe import TranscriptionConfig, transcribe_file
 
 
 class TestTranscribeFile(unittest.TestCase):
@@ -17,7 +17,7 @@ class TestTranscribeFile(unittest.TestCase):
         with patch("sys2txt.transcribe._transcribe_faster_whisper") as mock_transcribe:
             mock_transcribe.return_value = "test transcript"
             # The actual import will succeed since faster_whisper is installed
-            result = transcribe_file("/path/to/audio.wav", "auto", "small", None, False)
+            result = transcribe_file("/path/to/audio.wav", TranscriptionConfig())
 
         self.assertEqual(result, "test transcript")
         mock_transcribe.assert_called_once_with("/path/to/audio.wav", "small", None, False, "auto")
@@ -27,7 +27,8 @@ class TestTranscribeFile(unittest.TestCase):
         """Test transcribe_file() with explicit faster engine."""
         mock_transcribe.return_value = "faster transcript"
 
-        result = transcribe_file("/path/to/audio.wav", "faster", "base", "en", True)
+        config = TranscriptionConfig(engine="faster", model="base", language="en", timestamps=True)
+        result = transcribe_file("/path/to/audio.wav", config)
 
         self.assertEqual(result, "faster transcript")
         mock_transcribe.assert_called_once_with("/path/to/audio.wav", "base", "en", True, "auto")
@@ -37,7 +38,8 @@ class TestTranscribeFile(unittest.TestCase):
         """Test transcribe_file() with explicit whisper engine."""
         mock_transcribe.return_value = "whisper transcript"
 
-        result = transcribe_file("/path/to/audio.wav", "whisper", "medium", "fr", False)
+        config = TranscriptionConfig(engine="whisper", model="medium", language="fr")
+        result = transcribe_file("/path/to/audio.wav", config)
 
         self.assertEqual(result, "whisper transcript")
         mock_transcribe.assert_called_once_with("/path/to/audio.wav", "medium", "fr", False)
@@ -47,16 +49,16 @@ class TestTranscribeFile(unittest.TestCase):
         """Test transcribe_file() with cpp engine."""
         mock_transcribe.return_value = "cpp transcript"
 
-        result = transcribe_file(
-            "/path/to/audio.wav",
-            "cpp",
-            "small",
-            "en",
-            True,
+        config = TranscriptionConfig(
+            engine="cpp",
+            model="small",
+            language="en",
+            timestamps=True,
             model_path="/path/to/model.bin",
             whisper_cpp_path="/path/to/whisper-cli",
             device="vulkan",
         )
+        result = transcribe_file("/path/to/audio.wav", config)
 
         self.assertEqual(result, "cpp transcript")
         mock_transcribe.assert_called_once_with(
@@ -74,7 +76,7 @@ class TestTranscribeFile(unittest.TestCase):
         with patch.dict("sys.modules", {"faster_whisper": None}):
             with patch("sys2txt.transcribe._transcribe_openai_whisper") as mock_transcribe:
                 mock_transcribe.return_value = "fallback transcript"
-                result = transcribe_file("/path/to/audio.wav", "auto", "small", None, False)
+                result = transcribe_file("/path/to/audio.wav", TranscriptionConfig())
 
         self.assertEqual(result, "fallback transcript")
         mock_transcribe.assert_called_once_with("/path/to/audio.wav", "small", None, False)
@@ -82,7 +84,7 @@ class TestTranscribeFile(unittest.TestCase):
     def test_transcribe_file_invalid_engine(self):
         """Test transcribe_file() raises ValueError for invalid engine."""
         with self.assertRaises(ValueError) as cm:
-            transcribe_file("/path/to/audio.wav", "invalid", "small", None, False)
+            transcribe_file("/path/to/audio.wav", TranscriptionConfig(engine="invalid"))
 
         self.assertIn("Unknown engine", str(cm.exception))
         self.assertIn("invalid", str(cm.exception))

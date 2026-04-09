@@ -11,7 +11,7 @@ from datetime import datetime
 from .audio import record_once, segment_and_transcribe_live
 from .constants import WHISPER_MODEL
 from .pulse import get_default_monitor_source, list_pulse_sources
-from .transcribe import transcribe_file
+from .transcribe import TranscriptionConfig, transcribe_file
 
 
 def get_timestamp_filename() -> str:
@@ -43,11 +43,11 @@ def _resolve_output_path(output_arg: str | None) -> str:
     return output_arg if output_arg else os.path.join(output_dir, get_timestamp_filename())
 
 
-def _build_transcribe_kwargs(args) -> dict:
-    """Build the common keyword arguments for transcribe_file() from parsed args."""
-    return dict(
+def _build_transcription_config(args) -> TranscriptionConfig:
+    """Build a TranscriptionConfig from parsed CLI args."""
+    return TranscriptionConfig(
         engine=args.engine,
-        model_size=args.model_size,
+        model=args.model_size,
         language=args.language,
         timestamps=args.timestamps,
         model_path=args.model_path,
@@ -164,26 +164,26 @@ def main():
 
     if args.mode == "once":
         output_file = _resolve_output_path(args.output)
-        transcribe_kwargs = _build_transcribe_kwargs(args)
+        config = _build_transcription_config(args)
 
         if args.input:
-            text = transcribe_file(args.input, **transcribe_kwargs)
+            text = transcribe_file(args.input, config)
         else:
             with tempfile.TemporaryDirectory(prefix="sys2txt_") as tmp:
                 wav = os.path.join(tmp, "capture.wav")
                 record_once(source=source, out_wav=wav, sample_rate=16000, channels=1, duration=args.duration)
-                text = transcribe_file(wav, **transcribe_kwargs)
+                text = transcribe_file(wav, config)
 
         _save_transcript(text, output_file)
 
     elif args.mode == "live":
         output_file = _resolve_output_path(args.output)
-        transcribe_kwargs = _build_transcribe_kwargs(args)
+        config = _build_transcription_config(args)
         logger.info("Live transcript will be saved to: %s", output_file)
 
         def transcribe_segment(file_path: str, segment_index: int) -> str:
             """Transcribe a segment and format with optional timestamp prefix."""
-            text = transcribe_file(file_path, **transcribe_kwargs)
+            text = transcribe_file(file_path, config)
             if args.timestamps:
                 start = segment_index * args.segment_seconds
                 end = start + args.segment_seconds
