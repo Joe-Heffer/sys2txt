@@ -81,6 +81,17 @@ class TestTranscribeFile(unittest.TestCase):
         self.assertEqual(result, "fallback transcript")
         mock_transcribe.assert_called_once_with("/path/to/audio.wav", "small", None, False)
 
+    def test_transcribe_file_auto_falls_back_to_cpp(self):
+        """Test transcribe_file() auto falls back to whisper.cpp when neither Python engine is installed."""
+        with patch.dict("sys.modules", {"faster_whisper": None, "whisper": None}):
+            with patch("sys2txt.transcribe._transcribe_whisper_cpp") as mock_transcribe:
+                mock_transcribe.return_value = "cpp fallback transcript"
+                config = TranscriptionConfig()
+                result = transcribe_file("/path/to/audio.wav", config)
+
+        self.assertEqual(result, "cpp fallback transcript")
+        mock_transcribe.assert_called_once_with("/path/to/audio.wav", "small", None, False, None, None, "auto")
+
     def test_transcribe_file_invalid_engine(self):
         """Test transcribe_file() raises ValueError for invalid engine."""
         with self.assertRaises(ValueError) as cm:
