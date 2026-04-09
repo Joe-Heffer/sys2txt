@@ -570,5 +570,50 @@ class TestTranscribeWhisperCpp(unittest.TestCase):
         self.assertIn("timed out", str(cm.exception))
 
 
+class TestModelCacheThreadSafety(unittest.TestCase):
+    """Tests that model caching is thread-safe."""
+
+    def setUp(self):
+        """Reset cached model between tests."""
+        import sys2txt.transcribe as t
+
+        t._faster_whisper_model = None
+        t._faster_whisper_model_key = None
+
+    @patch("faster_whisper.WhisperModel")
+    def test_concurrent_calls_load_model_once(self, mock_model_class):
+        """Concurrent transcriptions with same params should only load the model once."""
+        import threading
+
+        from sys2txt.transcribe import _transcribe_faster_whisper
+
+        seg = MagicMock()
+        seg.text = " Hello "
+        seg.start = 0.0
+        seg.end = 1.0
+
+        mock_model = mock_model_class.return_value
+        mock_model.transcribe.return_value = ([seg], None)
+
+        barrier = threading.Barrier(4)
+        errors = []
+
+        def worker():
+            try:
+                barrier.wait(timeout=5)
+                _transcribe_faster_whisper("/path/to/audio.wav", "small", None, False, device="cpu")
+            except Exception as e:
+                errors.append(e)
+
+        threads = [threading.Thread(target=worker) for _ in range(4)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join(timeout=10)
+
+        self.assertEqual(errors, [])
+        mock_model_class.assert_called_once_with("small", device="cpu", compute_type="int8")
+
+
 if __name__ == "__main__":
     unittest.main()
