@@ -49,11 +49,33 @@ def main():
         help=f"Whisper model size (default: {WHISPER_MODEL})",
     )
     common.add_argument(
-        "--engine", choices=["auto", "faster", "whisper"], default="auto", help="Transcription engine (default: auto)"
+        "--engine",
+        choices=["auto", "faster", "whisper", "cpp"],
+        default="auto",
+        help="Transcription engine (default: auto)",
     )
     common.add_argument("--language", default=None, help="Force language code (e.g., en). Defaults to auto-detect")
     common.add_argument("--timestamps", action="store_true", help="Print timestamps with transcript")
     common.add_argument("--list-sources", action="store_true", help="List PulseAudio sources and exit")
+    common.add_argument(
+        "--device",
+        choices=["auto", "cpu", "vulkan", "gpu", "cuda"],
+        default="auto",
+        help=(
+            "Device for transcription: cpu (force CPU), cuda (NVIDIA, faster-whisper only), "
+            "vulkan/gpu (AMD/Vulkan, whisper.cpp only), auto (default, let engine decide)"
+        ),
+    )
+    common.add_argument(
+        "--model-path",
+        default=None,
+        help="Path to whisper.cpp model file (for cpp engine)",
+    )
+    common.add_argument(
+        "--whisper-cpp-path",
+        default=None,
+        help="Path to whisper-cli binary (for cpp engine)",
+    )
 
     once = sub.add_parser("once", parents=[common], help="Record once and transcribe after")
     once.add_argument("--duration", type=int, default=None, help="Record for N seconds instead of Ctrl-C")
@@ -65,6 +87,12 @@ def main():
     live.add_argument("--output", default=None, help="Append live transcript to this file as it's produced")
 
     args = parser.parse_args()
+
+    if args.engine not in ("cpp", "auto"):
+        if args.model_path:
+            print("Warning: --model-path is only used with --engine cpp", file=sys.stderr)
+        if args.whisper_cpp_path:
+            print("Warning: --whisper-cpp-path is only used with --engine cpp", file=sys.stderr)
 
     if args.list_sources:
         sources = list_pulse_sources()
@@ -103,6 +131,9 @@ def main():
                     model_size=args.model_size,
                     language=args.language,
                     timestamps=args.timestamps,
+                    model_path=args.model_path,
+                    whisper_cpp_path=args.whisper_cpp_path,
+                    device=args.device,
                 )
                 print(text)
                 with open(output_file, "w", encoding="utf-8") as w:
@@ -116,6 +147,9 @@ def main():
             model_size=args.model_size,
             language=args.language,
             timestamps=args.timestamps,
+            model_path=args.model_path,
+            whisper_cpp_path=args.whisper_cpp_path,
+            device=args.device,
         )
         print(text)
         with open(output_file, "w", encoding="utf-8") as w:
@@ -142,6 +176,9 @@ def main():
                 model_size=args.model_size,
                 language=args.language,
                 timestamps=args.timestamps,
+                model_path=args.model_path,
+                whisper_cpp_path=args.whisper_cpp_path,
+                device=args.device,
             )
             if args.timestamps:
                 # Add segment time window prefix

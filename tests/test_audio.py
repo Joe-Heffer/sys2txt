@@ -4,7 +4,7 @@ import os
 import signal
 import tempfile
 import unittest
-from unittest.mock import MagicMock, call, patch
+from unittest.mock import MagicMock, patch
 
 from sys2txt.audio import record_once, segment_and_transcribe_live
 
@@ -79,8 +79,14 @@ class TestSegmentAndTranscribeLive(unittest.TestCase):
         mock_proc.stdin = MagicMock()
         mock_popen.return_value = mock_proc
 
-        # Simulate two segments being created
-        mock_listdir.side_effect = [[], ["seg_00000.wav"], ["seg_00000.wav", "seg_00001.wav"], []]
+        # Simulate two segments being created. The flush-path listdir call must also
+        # return both files so the second segment is picked up after ffmpeg exits.
+        mock_listdir.side_effect = [
+            [],
+            ["seg_00000.wav"],
+            ["seg_00000.wav", "seg_00001.wav"],
+            ["seg_00000.wav", "seg_00001.wav"],  # flush path: seg_00001 not yet processed
+        ]
         mock_getsize.return_value = 1024  # Files have content
 
         transcribe_callback = MagicMock(side_effect=["transcript 1", "transcript 2"])
@@ -89,9 +95,7 @@ class TestSegmentAndTranscribeLive(unittest.TestCase):
             with patch("sys2txt.audio.tempfile.TemporaryDirectory") as mock_tmpdir:
                 mock_tmpdir.return_value.__enter__.return_value = tmpdir
 
-                segment_and_transcribe_live(
-                    "test.monitor", 16000, 1, 8, transcribe_callback, None
-                )
+                segment_and_transcribe_live("test.monitor", 16000, 1, 8, transcribe_callback, None)
 
         # Verify ffmpeg was called with correct args
         mock_which.assert_called_once_with("ffmpeg")
@@ -130,9 +134,7 @@ class TestSegmentAndTranscribeLive(unittest.TestCase):
                 with patch("sys2txt.audio.tempfile.TemporaryDirectory") as mock_tmpdir:
                     mock_tmpdir.return_value.__enter__.return_value = tmpdir
 
-                    segment_and_transcribe_live(
-                        "test.monitor", 16000, 1, 8, transcribe_callback, output_path
-                    )
+                    segment_and_transcribe_live("test.monitor", 16000, 1, 8, transcribe_callback, output_path)
 
             # Verify output was written
             with open(output_path, "r") as f:
@@ -145,9 +147,7 @@ class TestSegmentAndTranscribeLive(unittest.TestCase):
     @patch("sys2txt.audio.subprocess.Popen")
     @patch("sys2txt.audio.time.sleep")
     @patch("sys2txt.audio.os.listdir")
-    def test_segment_and_transcribe_live_keyboard_interrupt(
-        self, mock_listdir, mock_sleep, mock_popen, mock_which
-    ):
+    def test_segment_and_transcribe_live_keyboard_interrupt(self, mock_listdir, mock_sleep, mock_popen, mock_which):
         """Test segment_and_transcribe_live() handles KeyboardInterrupt gracefully."""
         mock_which.return_value = "/usr/bin/ffmpeg"
         mock_proc = MagicMock()
@@ -198,6 +198,77 @@ class TestSegmentAndTranscribeLive(unittest.TestCase):
 
         # Verify callback was NOT called for small file
         transcribe_callback.assert_not_called()
+
+    @patch("sys2txt.audio.which")
+    @patch("sys2txt.audio.subprocess.Popen")
+    @patch("sys2txt.audio.time.sleep")
+    @patch("sys2txt.audio.os.listdir")
+    @patch("sys2txt.audio.os.path.getsize")
+    def test_live_skips_last_segment_while_ffmpeg_running(
+        self, mock_getsize, mock_listdir, mock_sleep, mock_popen, mock_which
+    ):
+        """While ffmpeg is running, the newest segment (still being written) is not transcribed."""
+        mock_which.return_value = "/usr/bin/ffmpeg"
+        mock_proc = MagicMock()
+        # ffmpeg running on first poll, exits on second
+        mock_proc.poll.side_effect = [None, 0]
+        mock_proc.stdin = MagicMock()
+        mock_popen.return_value = mock_proc
+
+        mock_listdir.side_effect = [
+            ["seg_00000.wav", "seg_00001.wav"],  # live iter 1: seg_00000 safe, seg_00001 skipped
+            ["seg_00000.wav", "seg_00001.wav"],  # live iter 2: nothing new safe
+            ["seg_00000.wav", "seg_00001.wav"],  # flush path: seg_00001 now processed
+        ]
+        mock_getsize.return_value = 1024
+
+        transcribe_callback = MagicMock(side_effect=["transcript 0", "transcript 1"])
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with patch("sys2txt.audio.tempfile.TemporaryDirectory") as mock_tmpdir:
+                mock_tmpdir.return_value.__enter__.return_value = tmpdir
+                segment_and_transcribe_live("test.monitor", 16000, 1, 8, transcribe_callback, None)
+
+        # Both segments transcribed: seg_00000 in live loop, seg_00001 in flush path
+        self.assertEqual(transcribe_callback.call_count, 2)
+        first_call_path = transcribe_callback.call_args_list[0][0][0]
+        second_call_path = transcribe_callback.call_args_list[1][0][0]
+        self.assertIn("seg_00000", first_call_path)
+        self.assertIn("seg_00001", second_call_path)
+
+    @patch("sys2txt.audio.which")
+    @patch("sys2txt.audio.subprocess.Popen")
+    @patch("sys2txt.audio.time.sleep")
+    @patch("sys2txt.audio.os.listdir")
+    @patch("sys2txt.audio.os.path.getsize")
+    def test_live_processes_last_segment_in_flush_path(
+        self, mock_getsize, mock_listdir, mock_sleep, mock_popen, mock_which
+    ):
+        """After ffmpeg exits, the last segment (deferred during live polling) is transcribed."""
+        mock_which.return_value = "/usr/bin/ffmpeg"
+        mock_proc = MagicMock()
+        # ffmpeg exits immediately on first poll; single file only visible during flush
+        mock_proc.poll.side_effect = [0]
+        mock_proc.stdin = MagicMock()
+        mock_popen.return_value = mock_proc
+
+        mock_listdir.side_effect = [
+            ["seg_00000.wav"],  # live iter 1: one file, not safe (it's the active one) → skipped
+            ["seg_00000.wav"],  # flush path: ffmpeg closed it, now process it
+        ]
+        mock_getsize.return_value = 1024
+
+        transcribe_callback = MagicMock(return_value="transcript 0")
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with patch("sys2txt.audio.tempfile.TemporaryDirectory") as mock_tmpdir:
+                mock_tmpdir.return_value.__enter__.return_value = tmpdir
+                segment_and_transcribe_live("test.monitor", 16000, 1, 8, transcribe_callback, None)
+
+        # Segment must have been transcribed (in the flush path, not the live loop)
+        transcribe_callback.assert_called_once()
+        call_path = transcribe_callback.call_args_list[0][0][0]
+        self.assertIn("seg_00000", call_path)
 
 
 if __name__ == "__main__":
