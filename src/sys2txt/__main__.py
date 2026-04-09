@@ -37,6 +37,33 @@ def ensure_output_dir() -> str:
 logger = logging.getLogger(__name__)
 
 
+def _resolve_output_path(output_arg: str | None) -> str:
+    """Return the output file path, generating a timestamped name if none given."""
+    output_dir = ensure_output_dir()
+    return output_arg if output_arg else os.path.join(output_dir, get_timestamp_filename())
+
+
+def _build_transcribe_kwargs(args) -> dict:
+    """Build the common keyword arguments for transcribe_file() from parsed args."""
+    return dict(
+        engine=args.engine,
+        model_size=args.model_size,
+        language=args.language,
+        timestamps=args.timestamps,
+        model_path=args.model_path,
+        whisper_cpp_path=args.whisper_cpp_path,
+        device=args.device,
+    )
+
+
+def _save_transcript(text: str, output_file: str) -> None:
+    """Print transcript, write it to output_file, and log the saved path."""
+    print(text)
+    with open(output_file, "w", encoding="utf-8") as w:
+        w.write(text + "\n")
+    logger.info("Transcript saved to: %s", output_file)
+
+
 def _configure_logging(verbose: bool, quiet: bool) -> None:
     """Configure logging based on CLI flags and LOG_LEVEL environment variable."""
     level_name = os.environ.get("LOG_LEVEL", "").upper()
@@ -130,86 +157,33 @@ def main():
     source = args.source or get_default_monitor_source()
 
     if args.mode == "once":
-        # Determine output file path
-        output_dir = ensure_output_dir()
-        if args.output:
-            # If user specified a path, use it as-is (could be relative or absolute)
-            output_file = args.output
-        else:
-            # Generate timestamp-based filename in output/ directory
-            output_file = os.path.join(output_dir, get_timestamp_filename())
+        output_file = _resolve_output_path(args.output)
+        transcribe_kwargs = _build_transcribe_kwargs(args)
 
         if args.input:
-            audio_path = args.input
+            text = transcribe_file(args.input, **transcribe_kwargs)
         else:
-            # Make a temp WAV, record until duration/ctrl-c, then transcribe
             with tempfile.TemporaryDirectory(prefix="sys2txt_") as tmp:
                 wav = os.path.join(tmp, "capture.wav")
                 record_once(source=source, out_wav=wav, sample_rate=16000, channels=1, duration=args.duration)
-                audio_path = wav
-                text = transcribe_file(
-                    audio_path,
-                    engine=args.engine,
-                    model_size=args.model_size,
-                    language=args.language,
-                    timestamps=args.timestamps,
-                    model_path=args.model_path,
-                    whisper_cpp_path=args.whisper_cpp_path,
-                    device=args.device,
-                )
-                print(text)
-                with open(output_file, "w", encoding="utf-8") as w:
-                    w.write(text + "\n")
-                logger.info("Transcript saved to: %s", output_file)
-                return
-        # If input provided, just transcribe it
-        text = transcribe_file(
-            audio_path,
-            engine=args.engine,
-            model_size=args.model_size,
-            language=args.language,
-            timestamps=args.timestamps,
-            model_path=args.model_path,
-            whisper_cpp_path=args.whisper_cpp_path,
-            device=args.device,
-        )
-        print(text)
-        with open(output_file, "w", encoding="utf-8") as w:
-            w.write(text + "\n")
-        logger.info("Transcript saved to: %s", output_file)
+                text = transcribe_file(wav, **transcribe_kwargs)
+
+        _save_transcript(text, output_file)
 
     elif args.mode == "live":
-        # Determine output file path
-        output_dir = ensure_output_dir()
-        if args.output:
-            # If user specified a path, use it as-is (could be relative or absolute)
-            output_file = args.output
-        else:
-            # Generate timestamp-based filename in output/ directory
-            output_file = os.path.join(output_dir, get_timestamp_filename())
-
+        output_file = _resolve_output_path(args.output)
+        transcribe_kwargs = _build_transcribe_kwargs(args)
         logger.info("Live transcript will be saved to: %s", output_file)
 
         def transcribe_segment(file_path: str, segment_index: int) -> str:
             """Transcribe a segment and format with optional timestamp prefix."""
-            text = transcribe_file(
-                file_path,
-                engine=args.engine,
-                model_size=args.model_size,
-                language=args.language,
-                timestamps=args.timestamps,
-                model_path=args.model_path,
-                whisper_cpp_path=args.whisper_cpp_path,
-                device=args.device,
-            )
+            text = transcribe_file(file_path, **transcribe_kwargs)
             if args.timestamps:
-                # Add segment time window prefix
                 start = segment_index * args.segment_seconds
                 end = start + args.segment_seconds
                 prefix = f"[{start:>5d}-{end:>5d}s] "
                 return prefix + text.strip()
-            else:
-                return text.strip()
+            return text.strip()
 
         segment_and_transcribe_live(
             source=source,
