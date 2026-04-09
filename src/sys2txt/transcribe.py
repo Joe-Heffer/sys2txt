@@ -42,8 +42,10 @@ def transcribe_file(
     engine = engine.lower()
     if engine == "auto":
         try:
+            import faster_whisper  # noqa: F401
+
             engine = "faster"
-        except Exception:
+        except ImportError:
             engine = "whisper"
 
     if engine == "faster":
