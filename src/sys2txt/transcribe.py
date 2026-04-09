@@ -5,8 +5,23 @@ import re
 import shutil
 import subprocess
 import threading
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
+
+
+@dataclass
+class TranscriptionConfig:
+    """Configuration for transcription that stays constant across calls."""
+
+    engine: str = "auto"
+    model: str = "small"
+    device: str = "auto"
+    language: Optional[str] = None
+    timestamps: bool = False
+    model_path: Optional[str] = None
+    whisper_cpp_path: Optional[str] = None
+
 
 # Cached model instances to avoid expensive reloads on every segment
 _faster_whisper_model = None
@@ -16,32 +31,17 @@ _openai_whisper_model_key: Optional[str] = None
 _model_cache_lock = threading.Lock()
 
 
-def transcribe_file(
-    path: str,
-    engine: str,
-    model_size: str,
-    language: Optional[str],
-    timestamps: bool,
-    model_path: Optional[str] = None,
-    whisper_cpp_path: Optional[str] = None,
-    device: str = "auto",
-) -> str:
+def transcribe_file(path: str, config: TranscriptionConfig) -> str:
     """Transcribe an audio file using the specified Whisper engine.
 
     Args:
         path: Path to audio file
-        engine: Engine to use ("auto", "faster", "whisper", or "cpp")
-        model_size: Whisper model size (tiny, base, small, medium, large-v2)
-        language: Optional language code (e.g., "en"). If None, auto-detect.
-        timestamps: Whether to include timestamps in output
-        model_path: Path to whisper.cpp model file (for cpp engine)
-        whisper_cpp_path: Path to whisper-cli binary (for cpp engine)
-        device: Device to use ("auto", "cpu", "vulkan", "gpu", "cuda")
+        config: Transcription configuration
 
     Returns:
         Transcribed text
     """
-    engine = engine.lower()
+    engine = config.engine.lower()
     if engine == "auto":
         try:
             import faster_whisper  # noqa: F401
@@ -51,11 +51,19 @@ def transcribe_file(
             engine = "whisper"
 
     if engine == "faster":
-        return _transcribe_faster_whisper(path, model_size, language, timestamps, device)
+        return _transcribe_faster_whisper(path, config.model, config.language, config.timestamps, config.device)
     elif engine == "whisper":
-        return _transcribe_openai_whisper(path, model_size, language, timestamps)
+        return _transcribe_openai_whisper(path, config.model, config.language, config.timestamps)
     elif engine == "cpp":
-        return _transcribe_whisper_cpp(path, model_size, language, timestamps, model_path, whisper_cpp_path, device)
+        return _transcribe_whisper_cpp(
+            path,
+            config.model,
+            config.language,
+            config.timestamps,
+            config.model_path,
+            config.whisper_cpp_path,
+            config.device,
+        )
     else:
         raise ValueError(f"Unknown engine: {engine}")
 
