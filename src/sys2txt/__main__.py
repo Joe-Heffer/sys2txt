@@ -64,6 +64,24 @@ def _save_transcript(text: str, output_file: str) -> None:
     logger.info("Transcript saved to: %s", output_file)
 
 
+class _ColorFormatter(logging.Formatter):
+    """Logging formatter that colorizes the level name using ANSI codes."""
+
+    COLORS = {
+        logging.DEBUG: "\033[2m",  # dim
+        logging.INFO: "\033[32m",  # green
+        logging.WARNING: "\033[33m",  # yellow
+        logging.ERROR: "\033[31m",  # red
+        logging.CRITICAL: "\033[1;31m",  # bold red
+    }
+    RESET = "\033[0m"
+
+    def format(self, record):
+        color = self.COLORS.get(record.levelno, "")
+        record.levelname = f"{color}{record.levelname}{self.RESET}"
+        return super().format(record)
+
+
 def _configure_logging(verbose: bool, quiet: bool) -> None:
     """Configure logging based on CLI flags and LOG_LEVEL environment variable."""
     level_name = os.environ.get("LOG_LEVEL", "").upper()
@@ -75,7 +93,17 @@ def _configure_logging(verbose: bool, quiet: bool) -> None:
         level = logging.DEBUG
     else:
         level = logging.INFO
-    logging.basicConfig(level=level, format="%(levelname)s: %(message)s", stream=sys.stderr)
+
+    handler = logging.StreamHandler(sys.stderr)
+    fmt = "%(levelname)s: %(message)s"
+    if sys.stderr.isatty():
+        handler.setFormatter(_ColorFormatter(fmt))
+    else:
+        handler.setFormatter(logging.Formatter(fmt))
+
+    root = logging.getLogger()
+    root.setLevel(level)
+    root.addHandler(handler)
 
 
 def main():

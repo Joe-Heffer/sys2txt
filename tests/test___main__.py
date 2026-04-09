@@ -273,27 +273,30 @@ class TestModeDispatchLive(unittest.TestCase):
 class TestConfigureLogging(unittest.TestCase):
     """Tests for _configure_logging()."""
 
-    @patch("sys2txt.__main__.logging.basicConfig")
-    def test_verbose_sets_debug(self, mock_config):
+    def setUp(self):
+        """Remove handlers added by _configure_logging between tests."""
+        root = logging.getLogger()
+        self._original_handlers = root.handlers[:]
+        self._original_level = root.level
+
+    def tearDown(self):
+        root = logging.getLogger()
+        root.handlers = self._original_handlers
+        root.level = self._original_level
+
+    def test_verbose_sets_debug(self):
         _configure_logging(verbose=True, quiet=False)
-        mock_config.assert_called_once()
-        self.assertEqual(mock_config.call_args[1]["level"], logging.DEBUG)
+        self.assertEqual(logging.getLogger().level, logging.DEBUG)
 
-    @patch("sys2txt.__main__.logging.basicConfig")
-    def test_quiet_sets_warning(self, mock_config):
+    def test_quiet_sets_warning(self):
         _configure_logging(verbose=False, quiet=True)
-        mock_config.assert_called_once()
-        self.assertEqual(mock_config.call_args[1]["level"], logging.WARNING)
+        self.assertEqual(logging.getLogger().level, logging.WARNING)
 
-    @patch("sys2txt.__main__.logging.basicConfig")
-    def test_default_sets_info(self, mock_config):
+    def test_default_sets_info(self):
         _configure_logging(verbose=False, quiet=False)
-        mock_config.assert_called_once()
-        self.assertEqual(mock_config.call_args[1]["level"], logging.INFO)
+        self.assertEqual(logging.getLogger().level, logging.INFO)
 
-    @patch("sys2txt.__main__.logging.basicConfig")
-    def test_log_level_env_overrides_flags(self, mock_config):
+    def test_log_level_env_overrides_flags(self):
         with patch.dict(os.environ, {"LOG_LEVEL": "ERROR"}):
             _configure_logging(verbose=True, quiet=False)
-        mock_config.assert_called_once()
-        self.assertEqual(mock_config.call_args[1]["level"], logging.ERROR)
+        self.assertEqual(logging.getLogger().level, logging.ERROR)
