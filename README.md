@@ -37,10 +37,9 @@ sudo apt update
 sudo apt install -y ffmpeg python3-venv python3-pip
 ```
 
-2) Create a virtual environment and install sys2txt
+2) Create a virtual environment and install sys2txt from [PyPI](https://pypi.org/project/sys2txt/)
 
 ```bash
-cd sys2txt
 python3 -m venv .venv
 source .venv/bin/activate
 ```
