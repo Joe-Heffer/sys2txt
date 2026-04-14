@@ -3,8 +3,9 @@
 name: Publish to PyPI
 
 on:
-  release:
-    types: [published]
+  push:
+    tags:
+      - 'sys2txt-v*'
 
 permissions:
   contents: read
