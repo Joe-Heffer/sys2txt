@@ -5,7 +5,8 @@ name: Publish to PyPI
 on:
   push:
     tags:
-      - 'sys2txt-v*'
+      - "sys2txt-v*"
+      - "v*"
 
 permissions:
   contents: read
@@ -15,41 +16,41 @@ jobs:
     name: Build distribution
     runs-on: ubuntu-24.04
     steps:
-    - uses: actions/checkout@v4
-    - name: Set up Python
-      uses: actions/setup-python@v5
-      with:
-        python-version: "3.12"
-    - name: Validate pyproject.toml
-      run: |
-        pip install validate-pyproject
-        validate-pyproject pyproject.toml
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Validate pyproject.toml
+        run: |
+          pip install validate-pyproject
+          validate-pyproject pyproject.toml
 
-    - name: Install pypa/build
-      run: python -m pip install build --user
-    - name: Build a binary wheel and a source tarball
-      run: python -m build
-    - name: Store the distribution packages
-      uses: actions/upload-artifact@v4
-      with:
-        name: python-package-distributions
-        path: dist/
+      - name: Install pypa/build
+        run: python -m pip install build --user
+      - name: Build a binary wheel and a source tarball
+        run: python -m build
+      - name: Store the distribution packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: python-package-distributions
+          path: dist/
 
   publish-to-pypi:
     name: Publish to PyPI
     needs:
-    - build
+      - build
     runs-on: ubuntu-24.04
     environment:
       name: pypi
       url: https://pypi.org/p/sys2txt
     permissions:
-      id-token: write  # IMPORTANT: mandatory for trusted publishing
+      id-token: write # IMPORTANT: mandatory for trusted publishing
     steps:
-    - name: Download all the dists
-      uses: actions/download-artifact@v4
-      with:
-        name: python-package-distributions
-        path: dist/
-    - name: Publish distribution to PyPI
-      uses: pypa/gh-action-pypi-publish@release/v1
+      - name: Download all the dists
+        uses: actions/download-artifact@v4
+        with:
+          name: python-package-distributions
+          path: dist/
+      - name: Publish distribution to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
