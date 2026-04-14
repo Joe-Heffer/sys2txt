@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "sys2txt"
-version = "0.3.0"
+version = "0.4.0"
 description = "Record system audio and transcribe to text using AI"
 readme = "README.md"
 # https://devguide.python.org/versions/
