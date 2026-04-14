@@ -4,14 +4,13 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "sys2txt"
-version = "0.2.0"
+version = "0.3.0"
 description = "Record system audio and transcribe to text using AI"
 readme = "README.md"
-requires-python = ">=3.9"
-license = {text = "MIT"}
-authors = [
-    {name = "Joe Heffer", email = "jheffer@gmail.com"}
-]
+# https://devguide.python.org/versions/
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "Joe Heffer", email = "jheffer@gmail.com" }]
 dependencies = []
 
 [project.scripts]
@@ -21,9 +20,7 @@ sys2txt = "sys2txt.__main__:main"
 faster = ["faster-whisper>=1.0.0"]
 openai = ["openai-whisper>=20231117"]
 all = ["faster-whisper>=1.0.0", "openai-whisper>=20231117"]
-dev = [
-    "ruff>=0.8.0",
-]
+dev = ["ruff>=0.8.0"]
 
 [tool.setuptools.packages.find]
 where = ["src"]

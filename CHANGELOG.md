@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.3.0](https://github.com/Joe-Heffer/sys2txt/compare/sys2txt-v0.2.0...sys2txt-v0.3.0) (2026-04-14)
+
+
+### Features
+
+* add ANSI color formatting to log output when stderr is a TTY ([dc763e2](https://github.com/Joe-Heffer/sys2txt/commit/dc763e2b724e38606077c1844601128e789ad737))
+* colorized log output when stderr is a TTY ([9d30d1c](https://github.com/Joe-Heffer/sys2txt/commit/9d30d1cc0db73530fdb9b4f94b057ddf3e15df04))
+
 ## [0.2.0](https://github.com/Joe-Heffer/sys2txt/compare/sys2txt-v0.1.2...sys2txt-v0.2.0) (2026-04-09)
 
 
