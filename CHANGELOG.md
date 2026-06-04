@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.0](https://github.com/Joe-Heffer/sys2txt/compare/v0.4.0...v0.5.0) (2026-06-04)
+
+
+### Features
+
+* add --version flag to CLI ([4ac9e20](https://github.com/Joe-Heffer/sys2txt/commit/4ac9e20b5d6f046cfe763f675e09359c376278f1))
+
 ## [0.4.0](https://github.com/Joe-Heffer/sys2txt/compare/v0.3.0...v0.4.0) (2026-04-14)
 
 
