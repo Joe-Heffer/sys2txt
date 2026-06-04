@@ -7,6 +7,7 @@ import os
 import sys
 import tempfile
 from datetime import datetime
+from importlib.metadata import version
 
 from .audio import record_once, segment_and_transcribe_live
 from .constants import WHISPER_MODEL
@@ -109,6 +110,7 @@ def _configure_logging(verbose: bool, quiet: bool) -> None:
 def main():
     """Main CLI entry point."""
     parser = argparse.ArgumentParser(description="Record Ubuntu system audio and transcribe with Whisper.")
+    parser.add_argument("--version", action="version", version=f"%(prog)s {version('sys2txt')}")
     parser.add_argument("--verbose", "-v", action="store_true", help="Enable verbose (debug) logging")
     parser.add_argument("--quiet", "-q", action="store_true", help="Suppress informational log messages")
     sub = parser.add_subparsers(dest="mode", required=True)
