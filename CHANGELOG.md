@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.5.1](https://github.com/Joe-Heffer/sys2txt/compare/v0.5.0...v0.5.1) (2026-07-23)
+
+
+### Bug Fixes
+
+* always request timestamps from whisper-cli to fix empty transcripts ([a3c36e7](https://github.com/Joe-Heffer/sys2txt/commit/a3c36e7d5ad1a0933e9cc4dd4970961836bfa5fa))
+* always request timestamps from whisper-cli to fix empty transcripts ([907301c](https://github.com/Joe-Heffer/sys2txt/commit/907301c8a182c7baa48424ae045effd704d84e28)), closes [#42](https://github.com/Joe-Heffer/sys2txt/issues/42)
+
 ## [0.5.0](https://github.com/Joe-Heffer/sys2txt/compare/v0.4.0...v0.5.0) (2026-06-04)
 
 
