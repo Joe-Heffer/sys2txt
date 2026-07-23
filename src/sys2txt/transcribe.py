@@ -319,9 +319,6 @@ def _transcribe_whisper_cpp(
     if language:
         cmd.extend(["-l", language])
 
-    if not timestamps:
-        cmd.append("--no-timestamps")
-
     try:
         result = subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=300)
     except subprocess.TimeoutExpired as e:
