@@ -559,6 +559,31 @@ class TestTranscribeWhisperCpp(unittest.TestCase):
     @patch("sys2txt.transcribe._resolve_whisper_cpp_binary")
     @patch("sys2txt.transcribe._resolve_whisper_cpp_model_path")
     @patch("subprocess.run")
+    def test_transcribe_no_timestamps_does_not_pass_no_timestamps_flag(self, mock_run, mock_model_path, mock_binary):
+        """Regression test for #42: --no-timestamps must never be passed to whisper-cli.
+
+        whisper-cli only emits bracketed timestamp lines when timestamps are enabled;
+        with --no-timestamps its plain-text output doesn't match the parser's regex,
+        so the transcript would silently come back empty.
+        """
+        from sys2txt.transcribe import _transcribe_whisper_cpp
+
+        mock_binary.return_value = "/path/to/whisper-cli"
+        mock_model_path.return_value = "/path/to/model.bin"
+        mock_run.return_value = MagicMock(
+            stdout="[00:00:00.000 --> 00:00:05.000]   Hello world\n",
+            returncode=0,
+        )
+
+        result = _transcribe_whisper_cpp("/path/to/audio.wav", "small", None, False, None, None, "auto")
+
+        call_args = mock_run.call_args[0][0]
+        self.assertNotIn("--no-timestamps", call_args)
+        self.assertEqual(result, "Hello world")
+
+    @patch("sys2txt.transcribe._resolve_whisper_cpp_binary")
+    @patch("sys2txt.transcribe._resolve_whisper_cpp_model_path")
+    @patch("subprocess.run")
     def test_transcribe_failure(self, mock_run, mock_model_path, mock_binary):
         """Test transcription failure raises RuntimeError."""
         import subprocess
