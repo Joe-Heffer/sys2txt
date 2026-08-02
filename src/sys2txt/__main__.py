@@ -173,6 +173,18 @@ def main():
 
     _configure_logging(verbose=args.verbose, quiet=args.quiet)
 
+    try:
+        _run(args)
+    except RuntimeError as e:
+        logger.error("%s", e)
+        sys.exit(1)
+    except KeyboardInterrupt:
+        logger.info("Interrupted. Exiting.")
+        sys.exit(130)
+
+
+def _run(args) -> None:
+    """Dispatch to the requested mode. Raises KeyboardInterrupt/RuntimeError to caller."""
     if args.engine not in ("cpp", "auto"):
         if args.model_path:
             logger.warning("--model-path is only used with --engine cpp")
@@ -210,6 +222,7 @@ def main():
         output_file = _resolve_output_path(args.output)
         config = _build_transcription_config(args)
         logger.info("Live transcript will be saved to: %s", output_file)
+        logger.info("Press Ctrl-C once to stop live capture and save the transcript.")
 
         def transcribe_segment(file_path: str, segment_index: int) -> str:
             """Transcribe a segment and format with optional timestamp prefix."""
@@ -233,10 +246,4 @@ def main():
 
 
 if __name__ == "__main__":
-    try:
-        main()
-    except RuntimeError as e:
-        logger.error("%s", e)
-        sys.exit(1)
-    except KeyboardInterrupt:
-        pass
+    main()
