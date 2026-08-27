@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.4](https://github.com/Joe-Heffer/sys2txt/compare/v0.5.3...v0.5.4) (2026-08-27)
+
+
+### Bug Fixes
+
+* handle Ctrl-C gracefully at top level and inform live-mode users ([#45](https://github.com/Joe-Heffer/sys2txt/issues/45)) ([262d027](https://github.com/Joe-Heffer/sys2txt/commit/262d02734583fad3c659321731cac527a176bfac))
+
 ## [0.5.3](https://github.com/Joe-Heffer/sys2txt/compare/v0.5.2...v0.5.3) (2026-08-27)
 
 
