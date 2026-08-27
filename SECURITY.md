@@ -1,14 +1,5 @@
 # Security Policy
 
-## Supported Versions
-
-We release patches for security vulnerabilities in the following versions:
-
-| Version | Supported          |
-| ------- | ------------------ |
-| 0.4.x   | :white_check_mark: |
-| <= 0.3.0 | :x:                |
-
 ## Reporting a Vulnerability
 
 We take the security of sys2txt seriously. If you discover a security vulnerability, please follow these steps:
@@ -22,10 +13,6 @@ Instead, please report them via one of the following methods:
 1. **GitHub Security Advisories** (preferred):
    - Go to https://github.com/Joe-Heffer/sys2txt/security/advisories/new
    - Fill out the security advisory form with details
-
-2. **Email**:
-   - Send details to jheffer@gmail.com
-   - Use the subject line: "SECURITY: [Brief Description]"
 
 ### What to Include
 
