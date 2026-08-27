@@ -21,6 +21,10 @@ jobs:
     steps:
       - uses: googleapis/release-please-action@v4
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
+          # A PAT is required (not the default GITHUB_TOKEN): GitHub does not
+          # trigger downstream workflows (e.g. publish-to-pypi's tag push
+          # trigger) for tags/releases created with the default token, to
+          # prevent recursive workflow runs.
+          token: ${{ secrets.RELEASE_PLEASE_TOKEN }}
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
