@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.3](https://github.com/Joe-Heffer/sys2txt/compare/v0.5.2...v0.5.3) (2026-08-27)
+
+
+### Bug Fixes
+
+* use PAT for release-please to trigger downstream publish workflow ([#48](https://github.com/Joe-Heffer/sys2txt/issues/48)) ([01419bd](https://github.com/Joe-Heffer/sys2txt/commit/01419bd434035bc02060db34323311897e920e2a))
+
 ## [0.5.2](https://github.com/Joe-Heffer/sys2txt/compare/v0.5.1...v0.5.2) (2026-08-27)
 
 
