@@ -292,9 +292,9 @@ class TestConfigureLogging(unittest.TestCase):
         _configure_logging(verbose=False, quiet=True)
         self.assertEqual(logging.getLogger().level, logging.WARNING)
 
-    def test_default_sets_info(self):
+    def test_default_sets_warning(self):
         _configure_logging(verbose=False, quiet=False)
-        self.assertEqual(logging.getLogger().level, logging.INFO)
+        self.assertEqual(logging.getLogger().level, logging.WARNING)
 
     def test_log_level_env_overrides_flags(self):
         with patch.dict(os.environ, {"LOG_LEVEL": "ERROR"}):
