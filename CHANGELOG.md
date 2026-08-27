@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.5.2](https://github.com/Joe-Heffer/sys2txt/compare/v0.5.1...v0.5.2) (2026-08-27)
+
+
+### Bug Fixes
+
+* default log level to WARNING to suppress engine INFO spam ([5268c21](https://github.com/Joe-Heffer/sys2txt/commit/5268c215373fd1aefb883387ddd7f614b10baa88))
+* default log level to WARNING to suppress engine INFO spam ([66c257f](https://github.com/Joe-Heffer/sys2txt/commit/66c257ffc5772da186df7e7a406c1fd369985bce))
+
 ## [0.5.1](https://github.com/Joe-Heffer/sys2txt/compare/v0.5.0...v0.5.1) (2026-07-23)
 
 
