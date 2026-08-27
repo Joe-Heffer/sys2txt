@@ -93,7 +93,7 @@ def _configure_logging(verbose: bool, quiet: bool) -> None:
     elif verbose:
         level = logging.DEBUG
     else:
-        level = logging.INFO
+        level = logging.WARNING
 
     handler = logging.StreamHandler(sys.stderr)
     fmt = "%(levelname)s: %(message)s"
