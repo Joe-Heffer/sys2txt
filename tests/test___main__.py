@@ -195,6 +195,24 @@ class TestArgumentParsing(unittest.TestCase):
             with self.assertRaises(SystemExit):
                 main()
 
+    @patch("sys2txt.__main__._configure_logging")
+    @patch("sys2txt.__main__.get_default_monitor_source", return_value="default.monitor")
+    @patch("sys2txt.__main__.record_once", side_effect=KeyboardInterrupt())
+    @patch("sys2txt.__main__._resolve_output_path", return_value="/tmp/out.txt")
+    def test_keyboard_interrupt_exits_cleanly(self, _res, mock_rec, _src, _log):
+        with patch("sys.argv", ["sys2txt", "once"]):
+            with self.assertRaises(SystemExit) as ctx:
+                main()
+        self.assertEqual(ctx.exception.code, 130)
+
+    @patch("sys2txt.__main__._configure_logging")
+    @patch("sys2txt.__main__.get_default_monitor_source", side_effect=RuntimeError("boom"))
+    def test_runtime_error_exits_with_code_1(self, _src, _log):
+        with patch("sys.argv", ["sys2txt", "once"]):
+            with self.assertRaises(SystemExit) as ctx:
+                main()
+        self.assertEqual(ctx.exception.code, 1)
+
 
 class TestListSources(unittest.TestCase):
     """Tests for --list-sources flag."""
