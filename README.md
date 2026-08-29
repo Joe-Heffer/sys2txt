@@ -136,6 +136,45 @@ Transcribe with openai-whisper CLI:
 whisper out.wav --model small --task transcribe --language en
 ```
 
+## Use as a Python library
+
+`sys2txt` is importable as well as runnable. The library records and transcribes; printing, saving
+and when to stop are yours.
+
+Transcribe a fixed recording:
+
+```python
+from sys2txt import TranscriptionConfig, get_default_monitor_source, transcribe_once
+
+config = TranscriptionConfig(model="small.en")
+text = transcribe_once(get_default_monitor_source(), config, duration=30)
+```
+
+Consume a live recording segment by segment. `transcribe_live()` is a generator: it records until you
+stop iterating, and breaking out of the loop shuts ffmpeg down and cleans up its temporary files.
+
+```python
+from sys2txt import TranscriptionConfig, get_default_monitor_source, transcribe_live
+
+config = TranscriptionConfig(model="small.en")
+for segment in transcribe_live(get_default_monitor_source(), config, segment_seconds=8):
+    print(f"[{segment.start:.0f}s] {segment.text}")
+    if "goodbye" in segment.text.lower():
+        break
+```
+
+A segment whose transcription fails or times out is yielded with empty `text` and logged as a warning,
+so a failure never stops the stream.
+
+To handle the audio yourself, `iter_audio_segments()` yields `AudioSegment(index, path)` values without
+transcribing them, and `transcribe_file(path, config)` transcribes any audio file. Nothing in the library
+prints or writes files, and every module logs through the standard `logging` module under the `sys2txt`
+logger.
+
+The full public API is `AudioSegment`, `TranscriptSegment`, `TranscriptionConfig`,
+`get_default_monitor_source`, `iter_audio_segments`, `list_pulse_sources`, `record_once`,
+`transcribe_file`, `transcribe_live` and `transcribe_once`. The package ships type hints (`py.typed`).
+
 ## Whisper.cpp with Vulkan GPU
 
 For AMD GPUs (or other GPUs not supported by CUDA), you can use whisper.cpp with Vulkan acceleration for ~8x speedup over CPU.
