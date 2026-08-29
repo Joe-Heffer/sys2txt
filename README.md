@@ -84,6 +84,7 @@ sys2txt live --model small.en --segment-seconds 8
   replace it, since a subtitle or JSON document cannot resume mid-file
 - `--duration <seconds>` - (once mode) Record fixed duration instead of waiting for Ctrl-C
 - `--segment-seconds <n>` - (live mode) Segment length in seconds (default: 8)
+- `--silence-timeout <seconds>` - (live mode) Stop automatically after N consecutive seconds of silence (0=disabled, default: 0). Segments that fail to transcribe do not count as silence
 - `--timestamps` - Print timestamps alongside text (plain text only; the timed formats always carry
   their own)
 
@@ -201,8 +202,10 @@ for segment in transcribe_live(get_default_monitor_source(), config, segment_sec
         break
 ```
 
-A segment whose transcription fails or times out is yielded with empty `text` and logged as a warning,
-so a failure never stops the stream.
+A segment whose transcription fails or times out is yielded with empty `text`, an `error` describing
+the failure (`segment.failed` is `True`) and a warning in the log, so a failure never stops the stream
+and is never mistaken for silence. A segment that times out does not hold up the ones after it: its
+worker is abandoned and the next segment is transcribed on a fresh one.
 
 To handle the audio yourself, `iter_audio_segments()` yields `AudioSegment(index, path)` values without
 transcribing them, and `transcribe_file(path, config)` transcribes any audio file. Nothing in the library

@@ -11,7 +11,12 @@ from datetime import datetime
 from typing import Optional, TextIO
 
 from . import __version__
-from .constants import DEFAULT_OUTPUT_FORMAT, DEFAULT_SEGMENT_SECONDS, WHISPER_MODEL
+from .constants import (
+    DEFAULT_OUTPUT_FORMAT,
+    DEFAULT_SEGMENT_SECONDS,
+    MAX_CONSECUTIVE_SEGMENT_FAILURES,
+    WHISPER_MODEL,
+)
 from .formats import FORMAT_EXTENSIONS, OUTPUT_FORMATS, TIMED_FORMATS, get_formatter, render_transcript
 from .pipeline import TranscriptSegment, transcribe_live, transcribe_once_cues
 from .pulse import get_default_monitor_source, list_pulse_sources
@@ -362,7 +367,9 @@ def _run_live(options: Options, source: str) -> None:
     )
 
     segments = transcribe_live(source, config, segment_seconds=options.segment_seconds)
-    silent_seconds = 0
+    silence_start: Optional[float] = None
+    failures = 0
+    failure: Optional[str] = None
     with open(output_file, "a" if formatter is None else "w", encoding="utf-8") as handle:
         if formatter is not None:
             _emit(formatter.header(), handle)
@@ -378,12 +385,30 @@ def _run_live(options: Options, source: str) -> None:
                         for cue in segment.cues:
                             _emit(formatter.cue(cue), handle)
 
+                    if segment.failed:
+                        # A failure says nothing about what the segment held, so it neither
+                        # counts as speech nor accumulates towards the silence timeout.
+                        failures += 1
+                        silence_start = None
+                        if failures >= MAX_CONSECUTIVE_SEGMENT_FAILURES:
+                            failure = (
+                                f"Transcription failed for {failures} consecutive segments ({segment.error}), stopping."
+                            )
+                            break
+                        continue
+
+                    failures = 0
                     if segment.text.strip():
-                        silent_seconds = 0
-                    else:
-                        silent_seconds += options.segment_seconds
+                        silence_start = None
+                        continue
+
+                    # Measure silence along the recording's timeline, since segments holding no
+                    # audio at all are skipped and the processed ones need not be contiguous.
+                    if silence_start is None:
+                        silence_start = segment.start
+                    silent_seconds = segment.end - silence_start
                     if 0 < options.silence_timeout <= silent_seconds:
-                        logger.info("No speech detected for %d seconds, stopping automatically.", silent_seconds)
+                        logger.info("No speech detected for %.0f seconds, stopping automatically.", silent_seconds)
                         break
         except KeyboardInterrupt:
             logger.info("Stopping live capture...")
@@ -393,6 +418,8 @@ def _run_live(options: Options, source: str) -> None:
             _emit(formatter.footer(), handle)
 
     logger.info("Transcript saved to: %s", output_file)
+    if failure:
+        raise RuntimeError(failure)
 
 
 def _run(options: Options) -> None:
