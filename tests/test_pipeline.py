@@ -5,7 +5,14 @@ from concurrent.futures import TimeoutError as FuturesTimeoutError
 from unittest.mock import MagicMock, patch
 
 from sys2txt.audio import AudioSegment
-from sys2txt.pipeline import TranscriptSegment, _segment_timeout, transcribe_live, transcribe_once
+from sys2txt.formats import Cue, Transcript
+from sys2txt.pipeline import (
+    TranscriptSegment,
+    _segment_timeout,
+    transcribe_live,
+    transcribe_once,
+    transcribe_once_cues,
+)
 from sys2txt.transcribe import TranscriptionConfig
 
 
@@ -13,6 +20,11 @@ def make_segments(count, start=0):
     """Yield AudioSegment values the way iter_audio_segments does."""
     for i in range(start, start + count):
         yield AudioSegment(index=i, path=f"/tmp/seg_{i:05d}.wav")
+
+
+def spoken(text, start=0.0, end=1.0):
+    """Build the Transcript an engine returns for one segment, timed from the segment start."""
+    return Transcript(cues=(Cue(start=start, end=end, text=text),))
 
 
 class ClosableSegments:
@@ -45,21 +57,33 @@ class TestTranscribeLive(unittest.TestCase):
     def setUp(self):
         self.config = TranscriptionConfig(model="tiny")
 
-    @patch("sys2txt.pipeline.transcribe_file")
+    @patch("sys2txt.pipeline.transcribe_file_cues")
     @patch("sys2txt.pipeline.iter_audio_segments")
     def test_yields_a_transcript_per_segment(self, mock_iter, mock_transcribe):
         """Each audio segment becomes a TranscriptSegment with its position on the timeline."""
         mock_iter.return_value = make_segments(2)
-        mock_transcribe.side_effect = ["hello", "world"]
+        mock_transcribe.side_effect = [spoken("hello"), spoken("world")]
 
         segments = list(transcribe_live("test.monitor", self.config, segment_seconds=8))
 
-        self.assertEqual(segments[0], TranscriptSegment(index=0, text="hello", start=0.0, end=8.0))
-        self.assertEqual(segments[1], TranscriptSegment(index=1, text="world", start=8.0, end=16.0))
+        self.assertEqual([s.text for s in segments], ["hello", "world"])
+        self.assertEqual([(s.index, s.start, s.end) for s in segments], [(0, 0.0, 8.0), (1, 8.0, 16.0)])
         mock_iter.assert_called_once_with("test.monitor", 8, sample_rate=16000, channels=1)
         self.assertEqual(mock_transcribe.call_args_list[0][0], ("/tmp/seg_00000.wav", self.config))
 
-    @patch("sys2txt.pipeline.transcribe_file", return_value="hello")
+    @patch("sys2txt.pipeline.transcribe_file_cues")
+    @patch("sys2txt.pipeline.iter_audio_segments")
+    def test_cues_are_rebased_onto_the_recording_timeline(self, mock_iter, mock_transcribe):
+        """Engines time each segment from zero, so cues are shifted by the segment's start."""
+        mock_iter.return_value = make_segments(2)
+        mock_transcribe.side_effect = [spoken("hello", 0.5, 2.0), spoken("world", 1.0, 3.5)]
+
+        segments = list(transcribe_live("test.monitor", self.config, segment_seconds=8))
+
+        self.assertEqual(segments[0].cues, (Cue(0.5, 2.0, "hello"),))
+        self.assertEqual(segments[1].cues, (Cue(9.0, 11.5, "world"),))
+
+    @patch("sys2txt.pipeline.transcribe_file_cues", return_value=spoken("hello"))
     @patch("sys2txt.pipeline.iter_audio_segments")
     def test_transcribed_segment_carries_no_error(self, mock_iter, _transcribe):
         """A segment that transcribes cleanly is not marked as failed."""
@@ -70,25 +94,26 @@ class TestTranscribeLive(unittest.TestCase):
         self.assertIsNone(segment.error)
         self.assertFalse(segment.failed)
 
-    @patch("sys2txt.pipeline.transcribe_file")
+    @patch("sys2txt.pipeline.transcribe_file_cues")
     @patch("sys2txt.pipeline.iter_audio_segments")
     def test_failed_segment_yields_empty_text(self, mock_iter, mock_transcribe):
         """A segment that fails to transcribe is yielded with empty text and a warning."""
         mock_iter.return_value = make_segments(2)
-        mock_transcribe.side_effect = [RuntimeError("engine exploded"), "recovered"]
+        mock_transcribe.side_effect = [RuntimeError("engine exploded"), spoken("recovered")]
 
         with self.assertLogs("sys2txt.pipeline", level="WARNING") as logs:
             segments = list(transcribe_live("test.monitor", self.config, segment_seconds=8))
 
         self.assertEqual([s.text for s in segments], ["", "recovered"])
+        self.assertEqual(segments[0].cues, ())
         self.assertIn("engine exploded", logs.output[0])
 
-    @patch("sys2txt.pipeline.transcribe_file")
+    @patch("sys2txt.pipeline.transcribe_file_cues")
     @patch("sys2txt.pipeline.iter_audio_segments")
     def test_failed_segment_reports_why_it_failed(self, mock_iter, mock_transcribe):
         """A failure is distinguishable from silence by the error it carries."""
         mock_iter.return_value = make_segments(2)
-        mock_transcribe.side_effect = [RuntimeError("engine exploded"), ""]
+        mock_transcribe.side_effect = [RuntimeError("engine exploded"), Transcript()]
 
         with self.assertLogs("sys2txt.pipeline", level="WARNING"):
             failed, silent = list(transcribe_live("test.monitor", self.config, segment_seconds=8))
@@ -127,7 +152,7 @@ class TestTranscribeLive(unittest.TestCase):
         mock_iter.return_value = make_segments(2)
         stuck, recovered = MagicMock(), MagicMock()
         stuck.result.side_effect = FuturesTimeoutError()
-        recovered.result.return_value = "recovered"
+        recovered.result.return_value = spoken("recovered")
         first, second = MagicMock(), MagicMock()
         first.submit.return_value = stuck
         second.submit.return_value = recovered
@@ -142,7 +167,7 @@ class TestTranscribeLive(unittest.TestCase):
         second.submit.assert_called_once()
         second.shutdown.assert_called_once_with(wait=False)
 
-    @patch("sys2txt.pipeline.transcribe_file", return_value="hello")
+    @patch("sys2txt.pipeline.transcribe_file_cues", return_value=spoken("hello"))
     @patch("sys2txt.pipeline.iter_audio_segments")
     def test_closing_stops_the_audio_source(self, mock_iter, _transcribe):
         """Closing the transcript generator closes the underlying audio generator."""
@@ -156,7 +181,7 @@ class TestTranscribeLive(unittest.TestCase):
         self.assertEqual(first.index, 0)
         self.assertTrue(source.closed)
 
-    @patch("sys2txt.pipeline.transcribe_file", return_value="hello")
+    @patch("sys2txt.pipeline.transcribe_file_cues", return_value=spoken("hello"))
     @patch("sys2txt.pipeline.iter_audio_segments")
     def test_exhausting_the_generator_closes_the_audio_source(self, mock_iter, _transcribe):
         """Iterating to the end also releases the audio source."""
@@ -171,7 +196,7 @@ class TestTranscribeLive(unittest.TestCase):
 class TestTranscribeOnce(unittest.TestCase):
     """Tests for transcribe_once()."""
 
-    @patch("sys2txt.pipeline.transcribe_file", return_value="hello world")
+    @patch("sys2txt.pipeline.transcribe_file_cues", return_value=spoken("hello world"))
     @patch("sys2txt.pipeline.record_once")
     def test_records_then_transcribes(self, mock_record, mock_transcribe):
         config = TranscriptionConfig(model="tiny")
@@ -187,12 +212,20 @@ class TestTranscribeOnce(unittest.TestCase):
         # The recording is transcribed from the same temporary file
         self.assertEqual(mock_transcribe.call_args[0][0], record_args[0][1])
 
-    @patch("sys2txt.pipeline.transcribe_file", return_value="text")
+    @patch("sys2txt.pipeline.transcribe_file_cues", return_value=spoken("text"))
     @patch("sys2txt.pipeline.record_once")
     def test_records_until_interrupted_by_default(self, mock_record, _transcribe):
         transcribe_once("test.monitor", TranscriptionConfig())
 
         self.assertIsNone(mock_record.call_args[0][2])
+
+    @patch("sys2txt.pipeline.transcribe_file_cues", return_value=spoken("hello world", 0.5, 2.0))
+    @patch("sys2txt.pipeline.record_once")
+    def test_cues_variant_keeps_the_timings(self, _record, _transcribe):
+        """transcribe_once_cues() returns the engine's cues rather than flattened text."""
+        transcript = transcribe_once_cues("test.monitor", TranscriptionConfig(), 30)
+
+        self.assertEqual(transcript.cues, (Cue(0.5, 2.0, "hello world"),))
 
 
 if __name__ == "__main__":

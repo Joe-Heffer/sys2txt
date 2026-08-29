@@ -78,11 +78,30 @@ sys2txt live --model small.en --segment-seconds 8
 - `--engine <auto|faster|whisper|cpp>` - Force a specific engine (default: auto)
 - `--device <auto|cpu|vulkan|gpu|cuda>` - Device for transcription (default: auto)
 - `--language <code>` - Force language code (e.g., en). Omit to auto-detect
-- `--output <path>` - Write final transcript to a file (in live mode, appends)
+- `--format <txt|srt|vtt|json|tsv>` - Transcript format (default: txt). See [Output formats](#output-formats)
+- `--output <path>` - Write the transcript to a file. Without it, one is written to
+  `./output/<timestamp>.<ext>`. In live mode `txt` appends to an existing file; the timed formats
+  replace it, since a subtitle or JSON document cannot resume mid-file
 - `--duration <seconds>` - (once mode) Record fixed duration instead of waiting for Ctrl-C
 - `--segment-seconds <n>` - (live mode) Segment length in seconds (default: 8)
 - `--silence-timeout <seconds>` - (live mode) Stop automatically after N consecutive seconds of silence (0=disabled, default: 0). Segments that fail to transcribe do not count as silence
-- `--timestamps` - Print timestamps alongside text
+- `--timestamps` - Print timestamps alongside text (plain text only; the timed formats always carry
+  their own)
+
+### Output formats
+
+`--format` picks how the transcript is written, and applies to stdout and the output file alike.
+
+| Format | Extension | What it is |
+| --- | --- | --- |
+| `txt` | `.txt` | Plain text, the default. One line per segment in live mode |
+| `srt` | `.srt` | [SubRip](https://en.wikipedia.org/wiki/SubRip) subtitles, understood by essentially every video player |
+| `vtt` | `.vtt` | [WebVTT](https://www.w3.org/TR/webvtt1/), the W3C standard, loadable by a browser `<track>` element |
+| `json` | `.json` | openai-whisper's JSON schema (`text`, `segments`, `language`), for programmatic use |
+| `tsv` | `.tsv` | Tab-separated `start`/`end` milliseconds and text |
+
+The timed formats carry the engine's own per-utterance timings. In live mode those are rebased onto
+the timeline of the whole recording, so cue times keep increasing across segments.
 
 ## Examples
 
@@ -102,6 +121,25 @@ Live mode with shorter latency and timestamps:
 
 ```bash
 sys2txt live --segment-seconds 5 --timestamps
+```
+
+Produce subtitles for a recording, ready to drop next to a video:
+
+```bash
+sys2txt once --input talk.wav --format srt --output talk.srt
+sys2txt once --input talk.wav --format vtt --output talk.vtt
+```
+
+Capture a meeting live as WebVTT, stopping after 30 seconds of silence:
+
+```bash
+sys2txt live --format vtt --silence-timeout 30 --output meeting.vtt
+```
+
+Get machine-readable output with per-segment timings:
+
+```bash
+sys2txt once --input talk.wav --format json --output talk.json
 ```
 
 Force the reference openai-whisper engine:
@@ -174,9 +212,25 @@ transcribing them, and `transcribe_file(path, config)` transcribes any audio fil
 prints or writes files, and every module logs through the standard `logging` module under the `sys2txt`
 logger.
 
-The full public API is `AudioSegment`, `TranscriptSegment`, `TranscriptionConfig`,
-`get_default_monitor_source`, `iter_audio_segments`, `list_pulse_sources`, `record_once`,
-`transcribe_file`, `transcribe_live` and `transcribe_once`. The package ships type hints (`py.typed`).
+For timed output, use the `_cues` variants and render them yourself. They return a `Transcript` of
+`Cue(start, end, text)` values plus the detected language, which `render_transcript()` turns into any
+of the output formats:
+
+```python
+from sys2txt import TranscriptionConfig, render_transcript, transcribe_file_cues
+
+transcript = transcribe_file_cues("talk.wav", TranscriptionConfig(model="small.en"))
+with open("talk.srt", "w", encoding="utf-8") as f:
+    f.write(render_transcript(transcript.cues, "srt"))
+```
+
+In live mode the same cues are on each `TranscriptSegment` as `segment.cues`, already rebased onto the
+timeline of the recording.
+
+The full public API is `AudioSegment`, `Cue`, `OUTPUT_FORMATS`, `Transcript`, `TranscriptSegment`,
+`TranscriptionConfig`, `get_default_monitor_source`, `iter_audio_segments`, `list_pulse_sources`,
+`record_once`, `render_transcript`, `transcribe_file`, `transcribe_file_cues`, `transcribe_live`,
+`transcribe_once` and `transcribe_once_cues`. The package ships type hints (`py.typed`).
 
 ## Whisper.cpp with Vulkan GPU
 

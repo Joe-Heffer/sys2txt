@@ -34,3 +34,6 @@ WHISPER_CPP_TIMEOUT = 300
 
 MAX_CONSECUTIVE_SEGMENT_FAILURES = 3
 "Consecutive live-mode transcription failures tolerated before giving up"
+
+DEFAULT_OUTPUT_FORMAT = "txt"
+"Default transcript output format. See sys2txt.formats.OUTPUT_FORMATS for the rest."

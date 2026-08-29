@@ -59,6 +59,7 @@ Common flags:
 - `--engine {auto,faster,whisper,cpp}`: Force specific engine (default: auto)
 - `--device {auto,cpu,vulkan,gpu,cuda}`: Device for transcription (default: auto)
 - `--language <code>`: Force language code (e.g., en)
+- `--format {txt,srt,vtt,json,tsv}`: Transcript output format (default: txt)
 - `--output <path>`: Write transcript to file
 - `--duration <seconds>`: (once mode) Fixed recording duration
 - `--segment-seconds <n>`: (live mode) Segment length (default: 8)
@@ -79,10 +80,20 @@ The codebase is organized into focused modules by functionality:
 - `record_once()`: Spawns ffmpeg subprocess to record from PulseAudio/PipeWire source to WAV file. `sample_rate`/`channels` are keyword-only and default to the constants.
 - `iter_audio_segments()`: Generator. Spawns ffmpeg with the segment muxer, polls the temporary directory for finalized segments, and yields an `AudioSegment` for each. Indices are tracked by a counter (a segment holding no audio is skipped but still consumes its index). A consumer that breaks out of the loop or closes the generator triggers the `finally` that sends `q` to ffmpeg and removes the temporary directory. No transcription, no printing, no file writing.
 
+**formats.py** - Transcript data types and output formats:
+- `Cue`: Frozen dataclass of `(start, end, text)`; one timed span of speech, in seconds from the start of the recording. `shifted(offset)` moves it along the timeline
+- `Transcript`: Frozen dataclass of `(cues, language)` with a `text` property that flattens the cues
+- `OUTPUT_FORMATS` / `FORMAT_EXTENSIONS` / `TIMED_FORMATS`: the supported formats and their file extensions
+- `format_timestamp(seconds, decimal_separator=".")`: `HH:MM:SS.mmm`, with `","` for SubRip
+- `render_transcript(cues, output_format, timestamps=False, language=None)`: renders a whole document; used by once mode
+- `get_formatter(output_format, ...)`: returns a `TranscriptFormatter` with `header()`/`cue()`/`footer()` for incremental rendering; used by live mode. `render_transcript` is built on it so the two paths cannot drift. The JSON formatter buffers and emits the whole document from `footer()`
+- Pure formatting: no engine imports, no printing, no file writing
+
 **pipeline.py** - Recording and transcription combined:
-- `TranscriptSegment`: Frozen dataclass of `(index, text, start, end, error)` with a `failed` property. `error` is `None` on success and holds the reason on failure, which is what distinguishes a failed segment from a silent one (both have empty `text`).
+- `TranscriptSegment`: Frozen dataclass of `(index, text, start, end, cues, error)` with a `failed` property. `start`/`end` are the segment's fixed window on the recording clock; `cues` are the engine's own per-utterance spans, rebased onto that timeline by adding the segment's start. `error` is `None` on success and holds the reason on failure, which is what distinguishes a failed segment from a silent one (both have empty `text`).
 - `transcribe_live()`: Generator over `iter_audio_segments()`, transcribing each segment on a single-worker `ThreadPoolExecutor` with a timeout. A segment that fails or times out is yielded with empty text and an `error`, and logged as a warning. A timed-out worker cannot be cancelled, so the pool is abandoned (`_new_executor()` builds a replacement) rather than letting the next segment queue behind it and time out too.
-- `transcribe_once()`: Records to a temporary WAV and returns its transcript
+- `transcribe_once()`: Records to a temporary WAV and returns its transcript as text
+- `transcribe_once_cues()`: The structured form of `transcribe_once()`, returning a `Transcript`
 
 **pulse.py** - PulseAudio/PipeWire integration:
 - `list_pulse_sources()`: Uses `pactl list short sources` to enumerate audio sources
@@ -91,26 +102,28 @@ The codebase is organized into focused modules by functionality:
 
 **transcribe.py** - Whisper transcription:
 - `TranscriptionConfig`: Dataclass bundling engine, model, device, language, timestamps, model_path, and whisper_cpp_path
-- `transcribe_file(path, config)`: Main entry point, takes a file path and `TranscriptionConfig`, dispatches to appropriate engine
+- `transcribe_file_cues(path, config)`: Main entry point. Resolves the engine and returns a `Transcript` of timed `Cue` values
+- `transcribe_file(path, config)`: The text form, `render_transcript(..., "txt", timestamps=config.timestamps)` over the above. Output is unchanged from before formats existed
 - `_transcribe_faster_whisper()`: Uses faster_whisper.WhisperModel with VAD filter
 - `_transcribe_openai_whisper()`: Uses whisper.load_model() and model.transcribe()
 - `_transcribe_whisper_cpp()`: Runs whisper-cli subprocess with GPU/CPU support
 - `_resolve_whisper_cpp_binary()`: Resolves whisper-cli path from arg/env/PATH
 - `_resolve_whisper_cpp_model_path()`: Resolves model path from arg/env/default
-- `_parse_whisper_cpp_output()`: Parses whisper.cpp output format
-- All engines support timestamps flag for per-segment timing output
+- `_parse_whisper_cpp_output()`: Parses whisper.cpp's `[HH:MM:SS.mmm --> HH:MM:SS.mmm]` lines into cues
+- Every engine returns a `Transcript`, keeping real per-utterance times; `config.timestamps` only affects plain-text rendering, which happens in `formats.py`
 
-**constants.py** - Configuration shared by library and CLI: default model, capture `SAMPLE_RATE`/`CHANNELS`, segment length and poll interval, minimum segment size, ffmpeg shutdown grace, transcription timeouts, `MAX_CONSECUTIVE_SEGMENT_FAILURES`.
+**constants.py** - Configuration shared by library and CLI: default model, capture `SAMPLE_RATE`/`CHANNELS`, segment length and poll interval, minimum segment size, ffmpeg shutdown grace, transcription timeouts, `MAX_CONSECUTIVE_SEGMENT_FAILURES`, default output format.
 
 **utils.py** - Utility functions:
 - `which()`: Find command in PATH or raise RuntimeError
 
-**__init__.py** - The public API. Exports `AudioSegment`, `TranscriptSegment`, `TranscriptionConfig`, `get_default_monitor_source`, `iter_audio_segments`, `list_pulse_sources`, `record_once`, `transcribe_file`, `transcribe_live`, `transcribe_once` and `__version__`. Engine imports stay lazy so importing the package is cheap.
+**__init__.py** - The public API. Exports `AudioSegment`, `Cue`, `OUTPUT_FORMATS`, `Transcript`, `TranscriptSegment`, `TranscriptionConfig`, `get_default_monitor_source`, `iter_audio_segments`, `list_pulse_sources`, `record_once`, `render_transcript`, `transcribe_file`, `transcribe_file_cues`, `transcribe_live`, `transcribe_once`, `transcribe_once_cues` and `__version__`. Engine imports stay lazy so importing the package is cheap.
 
 **__main__.py** - CLI entry point, and the only module that prints:
 - argparse with subcommands: `once` and `live`, built by `_build_parser()`
 - `Options`: Frozen dataclass; `_build_options(args)` converts the argparse `Namespace` once and validates it (missing `--input` file, non-positive `--duration`/`--segment-seconds`, `--silence-timeout` shorter than a segment), raising `ValueError` that `main()` turns into a usage error (exit 2)
-- `_run_live()`: Consumes `transcribe_live()`, formatting, printing and appending each segment, and applying the stop policies by breaking out of the loop. Silence is measured along the segment timeline (`segment.end` minus the start of the silent stretch), so skipped segments are accounted for. Failed segments never count as silence; `MAX_CONSECUTIVE_SEGMENT_FAILURES` of them in a row saves the transcript and raises `RuntimeError`, which `main()` turns into an error and exit 1
+- `_run_once()`: Transcribes to cues, renders them in `--format`, and prints and writes the document
+- `_run_live()`: Consumes `transcribe_live()`, formatting and printing each segment, and applying the stop policies by breaking out of the loop. Plain text keeps its per-segment line format and appends to the output file; the timed formats stream a document through `get_formatter()`, opening the file for writing and emitting the footer after the loop so Ctrl-C and the silence timeout both close it. Silence is measured along the segment timeline (`segment.end` minus the start of the silent stretch), so skipped segments are accounted for. Failed segments never count as silence; `MAX_CONSECUTIVE_SEGMENT_FAILURES` of them in a row save the transcript and raise `RuntimeError`, which `main()` turns into an error and exit 1
 
 ### Key Dependencies
 - **ffmpeg**: System command for audio recording (checked via shutil.which)
@@ -209,6 +222,7 @@ ruff check --fix src/
 ## File Structure
 - `src/sys2txt/__main__.py`: CLI entry point: parsing, validation, printing, output files, stop policy
 - `src/sys2txt/audio.py`: Audio recording with ffmpeg
+- `src/sys2txt/formats.py`: Transcript cues and the txt/srt/vtt/json/tsv renderers
 - `src/sys2txt/pipeline.py`: Recording and transcription combined (`transcribe_live`, `transcribe_once`)
 - `src/sys2txt/transcribe.py`: Whisper transcription engines
 - `src/sys2txt/pulse.py`: PulseAudio/PipeWire source management
@@ -221,6 +235,7 @@ ruff check --fix src/
   - `tests/test_pulse.py`: Tests for PulseAudio integration
   - `tests/test_transcribe.py`: Tests for transcription engines
   - `tests/test_audio.py`: Tests for audio recording
+  - `tests/test_formats.py`: Tests for the transcript output formats
   - `tests/test_pipeline.py`: Tests for the recording/transcription pipeline
   - `tests/test___main__.py`: Tests for the CLI
   - `tests/test_init.py`: Tests for the public API surface
