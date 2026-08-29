@@ -8,13 +8,14 @@ import os
 import sys
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Optional
+from typing import Optional, TextIO
 
 from . import __version__
-from .constants import DEFAULT_SEGMENT_SECONDS, WHISPER_MODEL
-from .pipeline import TranscriptSegment, transcribe_live, transcribe_once
+from .constants import DEFAULT_OUTPUT_FORMAT, DEFAULT_SEGMENT_SECONDS, WHISPER_MODEL
+from .formats import FORMAT_EXTENSIONS, OUTPUT_FORMATS, TIMED_FORMATS, get_formatter, render_transcript
+from .pipeline import TranscriptSegment, transcribe_live, transcribe_once_cues
 from .pulse import get_default_monitor_source, list_pulse_sources
-from .transcribe import TranscriptionConfig, transcribe_file
+from .transcribe import TranscriptionConfig, transcribe_file_cues
 
 logger = logging.getLogger(__name__)
 
@@ -38,15 +39,19 @@ class Options:
     input_path: Optional[str] = None
     segment_seconds: int = DEFAULT_SEGMENT_SECONDS
     silence_timeout: int = 0
+    output_format: str = DEFAULT_OUTPUT_FORMAT
 
 
-def get_timestamp_filename() -> str:
+def get_timestamp_filename(extension: str = ".txt") -> str:
     """Generate a timestamp-based filename for output files.
 
+    Args:
+        extension: File extension to append, including the leading dot
+
     Returns:
-        A filename string in the format: YYYY-MM-DD_HH-MM-SS.txt
+        A filename string in the format: YYYY-MM-DD_HH-MM-SS<extension>
     """
-    return datetime.now().strftime("%Y-%m-%d_%H-%M-%S.txt")
+    return datetime.now().strftime("%Y-%m-%d_%H-%M-%S") + extension
 
 
 def ensure_output_dir() -> str:
@@ -60,10 +65,16 @@ def ensure_output_dir() -> str:
     return output_dir
 
 
-def _resolve_output_path(output_arg: Optional[str]) -> str:
-    """Return the output file path, generating a timestamped name if none given."""
+def _resolve_output_path(output_arg: Optional[str], output_format: str = DEFAULT_OUTPUT_FORMAT) -> str:
+    """Return the output file path, generating a timestamped name if none given.
+
+    A generated name takes the extension of the output format; an explicit path is used
+    as given, on the assumption the caller named it deliberately.
+    """
     output_dir = ensure_output_dir()
-    return output_arg if output_arg else os.path.join(output_dir, get_timestamp_filename())
+    if output_arg:
+        return output_arg
+    return os.path.join(output_dir, get_timestamp_filename(FORMAT_EXTENSIONS[output_format]))
 
 
 def _build_options(args: argparse.Namespace) -> Options:
@@ -91,6 +102,10 @@ def _build_options(args: argparse.Namespace) -> Options:
             f"({segment_seconds}s), since silence is only measured a whole segment at a time"
         )
 
+    output_format = getattr(args, "output_format", DEFAULT_OUTPUT_FORMAT)
+    if args.timestamps and output_format in TIMED_FORMATS:
+        logger.warning("--timestamps has no effect with --format %s, which always carries times", output_format)
+
     if args.engine not in ("cpp", "auto"):
         if args.model_path:
             logger.warning("--model-path is only used with --engine cpp")
@@ -113,6 +128,7 @@ def _build_options(args: argparse.Namespace) -> Options:
         input_path=input_path,
         segment_seconds=segment_seconds,
         silence_timeout=silence_timeout,
+        output_format=output_format,
     )
 
 
@@ -130,10 +146,14 @@ def _build_transcription_config(options: Options) -> TranscriptionConfig:
 
 
 def _save_transcript(text: str, output_file: str) -> None:
-    """Print transcript, write it to output_file, and log the saved path."""
-    print(text)
+    """Print transcript, write it to output_file, and log the saved path.
+
+    The document ends in exactly one newline, whether or not the format supplied its own.
+    """
+    document = text if text.endswith("\n") else text + "\n"
+    print(document, end="")
     with open(output_file, "w", encoding="utf-8") as w:
-        w.write(text + "\n")
+        w.write(document)
     logger.info("Transcript saved to: %s", output_file)
 
 
@@ -213,6 +233,16 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     common.add_argument("--language", default=None, help="Force language code (e.g., en). Defaults to auto-detect")
     common.add_argument("--timestamps", action="store_true", help="Print timestamps with transcript")
+    common.add_argument(
+        "--format",
+        dest="output_format",
+        choices=list(OUTPUT_FORMATS),
+        default=DEFAULT_OUTPUT_FORMAT,
+        help=(
+            "Transcript format: txt (plain text), srt (SubRip subtitles), vtt (WebVTT subtitles), "
+            f"json (openai-whisper schema), tsv (default: {DEFAULT_OUTPUT_FORMAT})"
+        ),
+    )
     common.add_argument("--list-sources", action="store_true", help="List PulseAudio sources and exit")
     common.add_argument(
         "--device",
@@ -292,34 +322,61 @@ def _list_sources() -> None:
 
 def _run_once(options: Options, source: str) -> None:
     """Record (or read) a single audio file, transcribe it, and save the transcript."""
-    output_file = _resolve_output_path(options.output)
+    output_file = _resolve_output_path(options.output, options.output_format)
     config = _build_transcription_config(options)
 
     if options.input_path:
-        text = transcribe_file(options.input_path, config)
+        transcript = transcribe_file_cues(options.input_path, config)
     else:
-        text = transcribe_once(source, config, options.duration)
+        transcript = transcribe_once_cues(source, config, options.duration)
 
+    text = render_transcript(
+        transcript.cues,
+        options.output_format,
+        timestamps=options.timestamps,
+        language=transcript.language,
+    )
     _save_transcript(text, output_file)
+
+
+def _emit(chunk: str, handle: TextIO) -> None:
+    """Print one piece of a transcript document and append it to the open output file."""
+    if not chunk:
+        return
+    print(chunk, end="", flush=True)
+    handle.write(chunk)
+    handle.flush()
 
 
 def _run_live(options: Options, source: str) -> None:
     """Consume live transcript segments, printing and saving each one as it arrives."""
-    output_file = _resolve_output_path(options.output)
+    output_file = _resolve_output_path(options.output, options.output_format)
     config = _build_transcription_config(options)
     logger.info("Live transcript will be saved to: %s", output_file)
     logger.info("Press Ctrl-C once to stop live capture and save the transcript.")
 
+    # Plain text is a running log that can be appended to. The other formats are documents
+    # with their own header, cue numbering and syntax, so each run starts a fresh one.
+    formatter = (
+        None if options.output_format == "txt" else get_formatter(options.output_format, language=options.language)
+    )
+
     segments = transcribe_live(source, config, segment_seconds=options.segment_seconds)
     silent_seconds = 0
-    with open(output_file, "a", encoding="utf-8") as handle:
+    with open(output_file, "a" if formatter is None else "w", encoding="utf-8") as handle:
+        if formatter is not None:
+            _emit(formatter.header(), handle)
         try:
             with contextlib.closing(segments):
                 for segment in segments:
-                    line = _format_segment(segment, options.timestamps)
-                    print(line, flush=True)
-                    handle.write(line + "\n")
-                    handle.flush()
+                    if formatter is None:
+                        line = _format_segment(segment, options.timestamps)
+                        print(line, flush=True)
+                        handle.write(line + "\n")
+                        handle.flush()
+                    else:
+                        for cue in segment.cues:
+                            _emit(formatter.cue(cue), handle)
 
                     if segment.text.strip():
                         silent_seconds = 0
@@ -330,6 +387,10 @@ def _run_live(options: Options, source: str) -> None:
                         break
         except KeyboardInterrupt:
             logger.info("Stopping live capture...")
+        if formatter is not None:
+            # Closes the document, so it has to run whether capture ended, timed out or
+            # was interrupted. JSON in particular is written entirely from here.
+            _emit(formatter.footer(), handle)
 
     logger.info("Transcript saved to: %s", output_file)
 

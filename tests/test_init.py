@@ -22,6 +22,9 @@ class TestPublicApi(unittest.TestCase):
             sorted(sys2txt.__all__),
             [
                 "AudioSegment",
+                "Cue",
+                "OUTPUT_FORMATS",
+                "Transcript",
                 "TranscriptSegment",
                 "TranscriptionConfig",
                 "__version__",
@@ -29,9 +32,12 @@ class TestPublicApi(unittest.TestCase):
                 "iter_audio_segments",
                 "list_pulse_sources",
                 "record_once",
+                "render_transcript",
                 "transcribe_file",
+                "transcribe_file_cues",
                 "transcribe_live",
                 "transcribe_once",
+                "transcribe_once_cues",
             ],
         )
 

@@ -8,9 +8,10 @@ import subprocess
 import threading
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
+from typing import List, Optional
 
 from .constants import WHISPER_CPP_TIMEOUT
+from .formats import Cue, Transcript, render_transcript
 
 logger = logging.getLogger(__name__)
 
@@ -37,14 +38,37 @@ _model_cache_lock = threading.Lock()
 
 
 def transcribe_file(path: str, config: TranscriptionConfig) -> str:
-    """Transcribe an audio file using the specified Whisper engine.
+    """Transcribe an audio file and return its text.
 
     Args:
         path: Path to audio file
         config: Transcription configuration
 
     Returns:
-        Transcribed text
+        Transcribed text, one line per cue when ``config.timestamps`` is set
+
+    Raises:
+        ValueError: If the configured engine is unknown
+    """
+    transcript = transcribe_file_cues(path, config)
+    return render_transcript(transcript.cues, "txt", timestamps=config.timestamps)
+
+
+def transcribe_file_cues(path: str, config: TranscriptionConfig) -> Transcript:
+    """Transcribe an audio file into timed cues.
+
+    This is the structured form of :func:`transcribe_file`, keeping the per-utterance
+    timings that the subtitle and JSON output formats need.
+
+    Args:
+        path: Path to audio file
+        config: Transcription configuration
+
+    Returns:
+        The transcript, with cue times in seconds from the start of the audio file
+
+    Raises:
+        ValueError: If the configured engine is unknown
     """
     engine = config.engine.lower()
     if engine == "auto":
@@ -64,15 +88,14 @@ def transcribe_file(path: str, config: TranscriptionConfig) -> str:
     logger.debug("Transcribing %s with engine '%s', model '%s'", path, engine, config.model)
 
     if engine == "faster":
-        return _transcribe_faster_whisper(path, config.model, config.language, config.timestamps, config.device)
+        return _transcribe_faster_whisper(path, config.model, config.language, config.device)
     elif engine == "whisper":
-        return _transcribe_openai_whisper(path, config.model, config.language, config.timestamps)
+        return _transcribe_openai_whisper(path, config.model, config.language)
     elif engine == "cpp":
         return _transcribe_whisper_cpp(
             path,
             config.model,
             config.language,
-            config.timestamps,
             config.model_path,
             config.whisper_cpp_path,
             config.device,
@@ -81,9 +104,7 @@ def transcribe_file(path: str, config: TranscriptionConfig) -> str:
         raise ValueError(f"Unknown engine: {engine}")
 
 
-def _transcribe_faster_whisper(
-    path: str, model_size: str, language: Optional[str], timestamps: bool, device: str = "auto"
-) -> str:
+def _transcribe_faster_whisper(path: str, model_size: str, language: Optional[str], device: str = "auto") -> Transcript:
     """Transcribe using faster-whisper (ctranslate2 backend)."""
     try:
         from faster_whisper import WhisperModel  # type: ignore
@@ -110,18 +131,11 @@ def _transcribe_faster_whisper(
             _faster_whisper_model_key = key
         model = _faster_whisper_model
     segments, info = model.transcribe(path, vad_filter=True, language=language)
-    if timestamps:
-        lines = []
-        for seg in segments:
-            s = f"[{seg.start:6.2f}-{seg.end:6.2f}] {seg.text.strip()}"
-            lines.append(s)
-        return "\n".join(lines)
-    else:
-        text_parts = [seg.text for seg in segments]
-        return " ".join(t.strip() for t in text_parts).strip()
+    cues = tuple(Cue(start=float(seg.start), end=float(seg.end), text=seg.text.strip()) for seg in segments)
+    return Transcript(cues=cues, language=getattr(info, "language", None) or language)
 
 
-def _transcribe_openai_whisper(path: str, model_size: str, language: Optional[str], timestamps: bool) -> str:
+def _transcribe_openai_whisper(path: str, model_size: str, language: Optional[str]) -> Transcript:
     """Transcribe using openai-whisper (reference implementation)."""
     try:
         import whisper  # type: ignore
@@ -136,16 +150,22 @@ def _transcribe_openai_whisper(path: str, model_size: str, language: Optional[st
             _openai_whisper_model_key = model_size
         model = _openai_whisper_model
     result = model.transcribe(path, language=language)
-    if timestamps and "segments" in result:
-        lines = []
-        for seg in result.get("segments", []):
-            start = seg.get("start", 0.0)
-            end = seg.get("end", 0.0)
-            text = seg.get("text", "").strip()
-            lines.append(f"[{start:6.2f}-{end:6.2f}] {text}")
-        return "\n".join(lines)
+    detected = result.get("language") or language
+    segments = result.get("segments") or []
+    if segments:
+        cues = tuple(
+            Cue(
+                start=float(seg.get("start", 0.0)),
+                end=float(seg.get("end", 0.0)),
+                text=seg.get("text", "").strip(),
+            )
+            for seg in segments
+        )
     else:
-        return result.get("text", "").strip()
+        # Untimed fallback: the whole transcript as a single cue of unknown extent.
+        text = result.get("text", "").strip()
+        cues = (Cue(start=0.0, end=0.0, text=text),) if text else ()
+    return Transcript(cues=cues, language=detected)
 
 
 def _resolve_whisper_cpp_binary(whisper_cpp_path: Optional[str]) -> str:
@@ -232,7 +252,7 @@ def _resolve_whisper_cpp_model_path(model_path: Optional[str], model_size: str) 
     )
 
 
-def _parse_whisper_cpp_output(output: str, timestamps: bool) -> str:
+def _parse_whisper_cpp_output(output: str, language: Optional[str] = None) -> Transcript:
     """Parse whisper.cpp stdout format.
 
     Whisper.cpp outputs lines like:
@@ -240,12 +260,12 @@ def _parse_whisper_cpp_output(output: str, timestamps: bool) -> str:
 
     Args:
         output: Raw stdout from whisper-cli
-        timestamps: Whether to include timestamps in output
+        language: Language code the caller asked for, recorded on the transcript
 
     Returns:
-        Parsed transcription text
+        The transcript parsed out of the timestamped lines
     """
-    lines = []
+    cues: List[Cue] = []
     # Pattern: [HH:MM:SS.mmm --> HH:MM:SS.mmm] text
     pattern = re.compile(r"\[(\d{2}:\d{2}:\d{2}\.\d{3})\s*-->\s*(\d{2}:\d{2}:\d{2}\.\d{3})\]\s*(.*)")
 
@@ -256,18 +276,15 @@ def _parse_whisper_cpp_output(output: str, timestamps: bool) -> str:
             text = text.strip()
             if not text:
                 continue
-            if timestamps:
-                # Convert HH:MM:SS.mmm to seconds for consistent formatting
-                start_secs = _timestamp_to_seconds(start_str)
-                end_secs = _timestamp_to_seconds(end_str)
-                lines.append(f"[{start_secs:6.2f}-{end_secs:6.2f}] {text}")
-            else:
-                lines.append(text)
+            cues.append(
+                Cue(
+                    start=_timestamp_to_seconds(start_str),
+                    end=_timestamp_to_seconds(end_str),
+                    text=text,
+                )
+            )
 
-    if timestamps:
-        return "\n".join(lines)
-    else:
-        return " ".join(lines).strip()
+    return Transcript(cues=tuple(cues), language=language)
 
 
 def _timestamp_to_seconds(ts: str) -> float:
@@ -293,24 +310,22 @@ def _transcribe_whisper_cpp(
     path: str,
     model_size: str,
     language: Optional[str],
-    timestamps: bool,
     model_path: Optional[str],
     whisper_cpp_path: Optional[str],
     device: str,
-) -> str:
+) -> Transcript:
     """Transcribe using whisper.cpp (with optional Vulkan GPU support).
 
     Args:
         path: Path to audio file
         model_size: Whisper model size (tiny, base, small, medium, large-v2)
         language: Optional language code (e.g., "en"). If None, auto-detect.
-        timestamps: Whether to include timestamps in output
         model_path: Path to whisper.cpp model file
         whisper_cpp_path: Path to whisper-cli binary
         device: Device to use ("auto", "cpu", "vulkan", "gpu", "cuda")
 
     Returns:
-        Transcribed text
+        The transcript, with cue times parsed from whisper-cli's output
 
     Raises:
         RuntimeError: If whisper-cli binary or model not found, or transcription fails
@@ -343,4 +358,4 @@ def _transcribe_whisper_cpp(
     except FileNotFoundError as e:
         raise RuntimeError(f"whisper-cli binary not found: {binary}") from e
 
-    return _parse_whisper_cpp_output(result.stdout, timestamps)
+    return _parse_whisper_cpp_output(result.stdout, language)

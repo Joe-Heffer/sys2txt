@@ -31,3 +31,6 @@ MIN_TRANSCRIBE_TIMEOUT = 60
 
 WHISPER_CPP_TIMEOUT = 300
 "Seconds to wait for whisper-cli before assuming a GPU hang or malformed audio"
+
+DEFAULT_OUTPUT_FORMAT = "txt"
+"Default transcript output format. See sys2txt.formats.OUTPUT_FORMATS for the rest."

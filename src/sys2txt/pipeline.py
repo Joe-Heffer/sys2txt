@@ -7,7 +7,7 @@ import tempfile
 from concurrent.futures import ThreadPoolExecutor
 from concurrent.futures import TimeoutError as FuturesTimeoutError
 from dataclasses import dataclass
-from typing import Iterator, Optional
+from typing import Iterator, Optional, Tuple
 
 from .audio import iter_audio_segments, record_once
 from .constants import (
@@ -17,7 +17,8 @@ from .constants import (
     SAMPLE_RATE,
     TRANSCRIBE_TIMEOUT_FACTOR,
 )
-from .transcribe import TranscriptionConfig, transcribe_file
+from .formats import Cue, Transcript, render_transcript
+from .transcribe import TranscriptionConfig, transcribe_file_cues
 
 logger = logging.getLogger(__name__)
 
@@ -31,12 +32,16 @@ class TranscriptSegment:
         text: Transcribed text, empty when the segment held no speech or transcription failed
         start: Start of the segment in seconds from the beginning of the recording
         end: End of the segment in seconds from the beginning of the recording
+        cues: The engine's own timed spans of speech within the segment, rebased onto the
+            recording timeline so their times are comparable with ``start`` and ``end``.
+            Empty when the segment held no speech or transcription failed.
     """
 
     index: int
     text: str
     start: float
     end: float
+    cues: Tuple[Cue, ...] = ()
 
 
 def _segment_timeout(segment_seconds: int) -> float:
@@ -75,21 +80,25 @@ def transcribe_live(
     try:
         with contextlib.closing(segments):
             for segment in segments:
-                future = executor.submit(transcribe_file, segment.path, config)
+                future = executor.submit(transcribe_file_cues, segment.path, config)
                 try:
-                    text = future.result(timeout=timeout)
+                    transcript = future.result(timeout=timeout)
                 except FuturesTimeoutError:
                     logger.warning("Segment %d transcription timed out, skipping", segment.index)
-                    text = ""
+                    transcript = Transcript()
                 except Exception as e:
                     logger.warning("Segment %d transcription failed: %s", segment.index, e)
-                    text = ""
+                    transcript = Transcript()
                 start = segment.index * segment_seconds
+                # The engine times each segment from zero, so shift its cues onto the
+                # timeline of the recording as a whole.
+                cues = tuple(cue.shifted(float(start)) for cue in transcript.cues)
                 yield TranscriptSegment(
                     index=segment.index,
-                    text=text,
+                    text=render_transcript(transcript.cues, "txt", timestamps=config.timestamps),
                     start=float(start),
                     end=float(start + segment_seconds),
+                    cues=cues,
                 )
     finally:
         executor.shutdown(wait=False)
@@ -103,7 +112,7 @@ def transcribe_once(
     sample_rate: int = SAMPLE_RATE,
     channels: int = CHANNELS,
 ) -> str:
-    """Record audio once and return its transcript.
+    """Record audio once and return its transcript as text.
 
     Args:
         source: PulseAudio source name
@@ -115,7 +124,34 @@ def transcribe_once(
     Returns:
         Transcribed text
     """
+    transcript = transcribe_once_cues(source, config, duration, sample_rate=sample_rate, channels=channels)
+    return render_transcript(transcript.cues, "txt", timestamps=config.timestamps)
+
+
+def transcribe_once_cues(
+    source: str,
+    config: TranscriptionConfig,
+    duration: Optional[int] = None,
+    *,
+    sample_rate: int = SAMPLE_RATE,
+    channels: int = CHANNELS,
+) -> Transcript:
+    """Record audio once and return its transcript as timed cues.
+
+    This is the structured form of :func:`transcribe_once`, keeping the per-utterance
+    timings that the subtitle and JSON output formats need.
+
+    Args:
+        source: PulseAudio source name
+        config: Transcription configuration
+        duration: Recording duration in seconds. If None, records until interrupted.
+        sample_rate: Sample rate in Hz
+        channels: Number of audio channels
+
+    Returns:
+        The transcript, with cue times in seconds from the start of the recording
+    """
     with tempfile.TemporaryDirectory(prefix="sys2txt_") as tmp:
         wav = os.path.join(tmp, "capture.wav")
         record_once(source, wav, duration, sample_rate=sample_rate, channels=channels)
-        return transcribe_file(wav, config)
+        return transcribe_file_cues(wav, config)

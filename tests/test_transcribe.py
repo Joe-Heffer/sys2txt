@@ -6,7 +6,14 @@ import unittest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-from sys2txt.transcribe import TranscriptionConfig, transcribe_file
+from sys2txt.formats import Cue, Transcript
+from sys2txt.transcribe import TranscriptionConfig, transcribe_file, transcribe_file_cues
+
+
+def transcript(*texts, language=None):
+    """Build a Transcript with one one-second cue per text."""
+    cues = tuple(Cue(start=float(i), end=float(i + 1), text=text) for i, text in enumerate(texts))
+    return Transcript(cues=cues, language=language)
 
 
 class TestTranscribeFile(unittest.TestCase):
@@ -16,38 +23,38 @@ class TestTranscribeFile(unittest.TestCase):
         """Test transcribe_file() auto-selects faster-whisper when available."""
         with patch.dict("sys.modules", {"faster_whisper": MagicMock()}):
             with patch("sys2txt.transcribe._transcribe_faster_whisper") as mock_transcribe:
-                mock_transcribe.return_value = "test transcript"
+                mock_transcribe.return_value = transcript("test transcript")
                 result = transcribe_file("/path/to/audio.wav", TranscriptionConfig())
 
         self.assertEqual(result, "test transcript")
-        mock_transcribe.assert_called_once_with("/path/to/audio.wav", "small", None, False, "auto")
+        mock_transcribe.assert_called_once_with("/path/to/audio.wav", "small", None, "auto")
 
     @patch("sys2txt.transcribe._transcribe_faster_whisper")
     def test_transcribe_file_faster_engine(self, mock_transcribe):
         """Test transcribe_file() with explicit faster engine."""
-        mock_transcribe.return_value = "faster transcript"
+        mock_transcribe.return_value = transcript("faster transcript")
 
         config = TranscriptionConfig(engine="faster", model="base", language="en", timestamps=True)
         result = transcribe_file("/path/to/audio.wav", config)
 
-        self.assertEqual(result, "faster transcript")
-        mock_transcribe.assert_called_once_with("/path/to/audio.wav", "base", "en", True, "auto")
+        self.assertEqual(result, "[  0.00-  1.00] faster transcript")
+        mock_transcribe.assert_called_once_with("/path/to/audio.wav", "base", "en", "auto")
 
     @patch("sys2txt.transcribe._transcribe_openai_whisper")
     def test_transcribe_file_whisper_engine(self, mock_transcribe):
         """Test transcribe_file() with explicit whisper engine."""
-        mock_transcribe.return_value = "whisper transcript"
+        mock_transcribe.return_value = transcript("whisper transcript")
 
         config = TranscriptionConfig(engine="whisper", model="medium", language="fr")
         result = transcribe_file("/path/to/audio.wav", config)
 
         self.assertEqual(result, "whisper transcript")
-        mock_transcribe.assert_called_once_with("/path/to/audio.wav", "medium", "fr", False)
+        mock_transcribe.assert_called_once_with("/path/to/audio.wav", "medium", "fr")
 
     @patch("sys2txt.transcribe._transcribe_whisper_cpp")
     def test_transcribe_file_cpp_engine(self, mock_transcribe):
         """Test transcribe_file() with cpp engine."""
-        mock_transcribe.return_value = "cpp transcript"
+        mock_transcribe.return_value = transcript("cpp transcript")
 
         config = TranscriptionConfig(
             engine="cpp",
@@ -60,12 +67,11 @@ class TestTranscribeFile(unittest.TestCase):
         )
         result = transcribe_file("/path/to/audio.wav", config)
 
-        self.assertEqual(result, "cpp transcript")
+        self.assertEqual(result, "[  0.00-  1.00] cpp transcript")
         mock_transcribe.assert_called_once_with(
             "/path/to/audio.wav",
             "small",
             "en",
-            True,
             "/path/to/model.bin",
             "/path/to/whisper-cli",
             "vulkan",
@@ -75,22 +81,22 @@ class TestTranscribeFile(unittest.TestCase):
         """Test transcribe_file() auto falls back to openai-whisper when faster-whisper is not installed."""
         with patch.dict("sys.modules", {"faster_whisper": None, "whisper": MagicMock()}):
             with patch("sys2txt.transcribe._transcribe_openai_whisper") as mock_transcribe:
-                mock_transcribe.return_value = "fallback transcript"
+                mock_transcribe.return_value = transcript("fallback transcript")
                 result = transcribe_file("/path/to/audio.wav", TranscriptionConfig())
 
         self.assertEqual(result, "fallback transcript")
-        mock_transcribe.assert_called_once_with("/path/to/audio.wav", "small", None, False)
+        mock_transcribe.assert_called_once_with("/path/to/audio.wav", "small", None)
 
     def test_transcribe_file_auto_falls_back_to_cpp(self):
         """Test transcribe_file() auto falls back to whisper.cpp when neither Python engine is installed."""
         with patch.dict("sys.modules", {"faster_whisper": None, "whisper": None}):
             with patch("sys2txt.transcribe._transcribe_whisper_cpp") as mock_transcribe:
-                mock_transcribe.return_value = "cpp fallback transcript"
+                mock_transcribe.return_value = transcript("cpp fallback transcript")
                 config = TranscriptionConfig()
                 result = transcribe_file("/path/to/audio.wav", config)
 
         self.assertEqual(result, "cpp fallback transcript")
-        mock_transcribe.assert_called_once_with("/path/to/audio.wav", "small", None, False, None, None, "auto")
+        mock_transcribe.assert_called_once_with("/path/to/audio.wav", "small", None, None, None, "auto")
 
     def test_transcribe_file_invalid_engine(self):
         """Test transcribe_file() raises ValueError for invalid engine."""
@@ -99,6 +105,27 @@ class TestTranscribeFile(unittest.TestCase):
 
         self.assertIn("Unknown engine", str(cm.exception))
         self.assertIn("invalid", str(cm.exception))
+
+
+class TestTranscribeFileCues(unittest.TestCase):
+    """Tests for the transcribe_file_cues() function."""
+
+    @patch("sys2txt.transcribe._transcribe_faster_whisper")
+    def test_returns_the_engine_transcript_unchanged(self, mock_transcribe):
+        """Test transcribe_file_cues() hands back the engine's cues and language."""
+        mock_transcribe.return_value = transcript("hello", language="en")
+
+        result = transcribe_file_cues("/path/to/audio.wav", TranscriptionConfig(engine="faster"))
+
+        self.assertEqual(result.cues, (Cue(0.0, 1.0, "hello"),))
+        self.assertEqual(result.language, "en")
+
+    def test_invalid_engine(self):
+        """Test transcribe_file_cues() raises ValueError for an invalid engine."""
+        with self.assertRaises(ValueError) as cm:
+            transcribe_file_cues("/path/to/audio.wav", TranscriptionConfig(engine="invalid"))
+
+        self.assertIn("Unknown engine", str(cm.exception))
 
 
 class TestTranscribeFasterWhisper(unittest.TestCase):
@@ -135,9 +162,9 @@ class TestTranscribeFasterWhisper(unittest.TestCase):
         mock_model = mock_model_class.return_value
         mock_model.transcribe.return_value = ([seg1, seg2], None)
 
-        result = _transcribe_faster_whisper("/path/to/audio.wav", "small", None, False)
+        result = _transcribe_faster_whisper("/path/to/audio.wav", "small", None)
 
-        self.assertEqual(result, "Hello world Test audio")
+        self.assertEqual(result.cues, (Cue(0.0, 1.5, "Hello world"), Cue(1.5, 3.0, "Test audio")))
         mock_model.transcribe.assert_called_once_with("/path/to/audio.wav", vad_filter=True, language=None)
 
     @patch("faster_whisper.WhisperModel")
@@ -159,10 +186,10 @@ class TestTranscribeFasterWhisper(unittest.TestCase):
         mock_model = mock_model_class.return_value
         mock_model.transcribe.return_value = ([seg1, seg2], None)
 
-        result = _transcribe_faster_whisper("/path/to/audio.wav", "base", "en", True)
+        result = _transcribe_faster_whisper("/path/to/audio.wav", "base", "en")
 
-        self.assertIn("[  0.00-  1.50] Hello", result)
-        self.assertIn("[  1.50-  3.00] world", result)
+        self.assertEqual(result.cues, (Cue(0.0, 1.5, "Hello"), Cue(1.5, 3.0, "world")))
+        self.assertEqual(result.language, "en")
         mock_model.transcribe.assert_called_once_with("/path/to/audio.wav", vad_filter=True, language="en")
 
     @patch("faster_whisper.WhisperModel")
@@ -174,7 +201,7 @@ class TestTranscribeFasterWhisper(unittest.TestCase):
         mock_model = mock_model_class.return_value
         mock_model.transcribe.return_value = ([], None)
 
-        _transcribe_faster_whisper("/path/to/audio.wav", "small", None, False, device="auto")
+        _transcribe_faster_whisper("/path/to/audio.wav", "small", None, device="auto")
 
         mock_model_class.assert_called_once_with("small", device="cuda", compute_type="float16")
 
@@ -186,7 +213,7 @@ class TestTranscribeFasterWhisper(unittest.TestCase):
         mock_model = mock_model_class.return_value
         mock_model.transcribe.return_value = ([], None)
 
-        _transcribe_faster_whisper("/path/to/audio.wav", "small", None, False, device="cuda")
+        _transcribe_faster_whisper("/path/to/audio.wav", "small", None, device="cuda")
 
         mock_model_class.assert_called_once_with("small", device="cuda", compute_type="float16")
 
@@ -198,7 +225,7 @@ class TestTranscribeFasterWhisper(unittest.TestCase):
         mock_model = mock_model_class.return_value
         mock_model.transcribe.return_value = ([], None)
 
-        _transcribe_faster_whisper("/path/to/audio.wav", "small", None, False, device="cpu")
+        _transcribe_faster_whisper("/path/to/audio.wav", "small", None, device="cpu")
 
         mock_model_class.assert_called_once_with("small", device="cpu", compute_type="int8")
 
@@ -209,7 +236,7 @@ class TestTranscribeFasterWhisper(unittest.TestCase):
         # Mock the import to fail at the point where it's actually imported in the function
         with patch.dict("sys.modules", {"faster_whisper": None}):
             with self.assertRaises(RuntimeError) as cm:
-                _transcribe_faster_whisper("/path/to/audio.wav", "small", None, False)
+                _transcribe_faster_whisper("/path/to/audio.wav", "small", None)
 
             self.assertIn("faster-whisper is not installed", str(cm.exception))
 
@@ -238,9 +265,9 @@ class TestTranscribeOpenAIWhisper(unittest.TestCase):
         mock_load_model.return_value = mock_model
         mock_model.transcribe.return_value = {"text": " Hello world "}
 
-        result = _transcribe_openai_whisper("/path/to/audio.wav", "small", None, False)
+        result = _transcribe_openai_whisper("/path/to/audio.wav", "small", None)
 
-        self.assertEqual(result, "Hello world")
+        self.assertEqual(result.cues, (Cue(0.0, 0.0, "Hello world"),))
         mock_load_model.assert_called_once_with("small")
         mock_model.transcribe.assert_called_once_with("/path/to/audio.wav", language=None)
 
@@ -259,10 +286,10 @@ class TestTranscribeOpenAIWhisper(unittest.TestCase):
             ],
         }
 
-        result = _transcribe_openai_whisper("/path/to/audio.wav", "base", "en", True)
+        result = _transcribe_openai_whisper("/path/to/audio.wav", "base", "en")
 
-        self.assertIn("[  0.00-  1.50] Hello", result)
-        self.assertIn("[  1.50-  3.00] world", result)
+        self.assertEqual(result.cues, (Cue(0.0, 1.5, "Hello"), Cue(1.5, 3.0, "world")))
+        self.assertEqual(result.language, "en")
         mock_model.transcribe.assert_called_once_with("/path/to/audio.wav", language="en")
 
     def test_transcribe_openai_whisper_not_installed(self):
@@ -272,7 +299,7 @@ class TestTranscribeOpenAIWhisper(unittest.TestCase):
         # Mock the import to fail at the point where it's actually imported in the function
         with patch.dict("sys.modules", {"whisper": None}):
             with self.assertRaises(RuntimeError) as cm:
-                _transcribe_openai_whisper("/path/to/audio.wav", "small", None, False)
+                _transcribe_openai_whisper("/path/to/audio.wav", "small", None)
 
             self.assertIn("openai-whisper is not installed", str(cm.exception))
 
@@ -402,28 +429,27 @@ class TestResolveWhisperCppModelPath(unittest.TestCase):
 class TestParseWhisperCppOutput(unittest.TestCase):
     """Tests for the _parse_whisper_cpp_output() function."""
 
-    def test_parse_with_timestamps(self):
-        """Test parsing whisper.cpp output with timestamps enabled."""
+    def test_parse_keeps_cue_times(self):
+        """Test parsing whisper.cpp output into cues that keep their times."""
         from sys2txt.transcribe import _parse_whisper_cpp_output
 
         output = """[00:00:00.000 --> 00:00:05.120]   Hello world
 [00:00:05.120 --> 00:00:10.240]   This is a test"""
 
-        result = _parse_whisper_cpp_output(output, timestamps=True)
+        result = _parse_whisper_cpp_output(output)
 
-        self.assertIn("[  0.00-  5.12] Hello world", result)
-        self.assertIn("[  5.12- 10.24] This is a test", result)
+        self.assertEqual(
+            result.cues,
+            (Cue(0.0, 5.12, "Hello world"), Cue(5.12, 10.24, "This is a test")),
+        )
 
-    def test_parse_without_timestamps(self):
-        """Test parsing whisper.cpp output without timestamps."""
+    def test_parse_records_the_language(self):
+        """Test that the requested language is recorded on the transcript."""
         from sys2txt.transcribe import _parse_whisper_cpp_output
 
-        output = """[00:00:00.000 --> 00:00:05.120]   Hello world
-[00:00:05.120 --> 00:00:10.240]   This is a test"""
+        result = _parse_whisper_cpp_output("[00:00:00.000 --> 00:00:05.120]   Bonjour", "fr")
 
-        result = _parse_whisper_cpp_output(output, timestamps=False)
-
-        self.assertEqual(result, "Hello world This is a test")
+        self.assertEqual(result.language, "fr")
 
     def test_parse_empty_segments_ignored(self):
         """Test that empty segments are ignored."""
@@ -433,9 +459,9 @@ class TestParseWhisperCppOutput(unittest.TestCase):
 [00:00:05.120 --> 00:00:10.240]
 [00:00:10.240 --> 00:00:15.000]   World"""
 
-        result = _parse_whisper_cpp_output(output, timestamps=False)
+        result = _parse_whisper_cpp_output(output)
 
-        self.assertEqual(result, "Hello World")
+        self.assertEqual(result.text, "Hello World")
 
     def test_parse_non_matching_lines_ignored(self):
         """Test that non-matching lines are ignored."""
@@ -445,9 +471,9 @@ class TestParseWhisperCppOutput(unittest.TestCase):
 [00:00:00.000 --> 00:00:05.120]   Hello world
 main: some debug output"""
 
-        result = _parse_whisper_cpp_output(output, timestamps=False)
+        result = _parse_whisper_cpp_output(output)
 
-        self.assertEqual(result, "Hello world")
+        self.assertEqual(result.text, "Hello world")
 
 
 class TestTimestampToSeconds(unittest.TestCase):
@@ -492,9 +518,9 @@ class TestTranscribeWhisperCpp(unittest.TestCase):
             returncode=0,
         )
 
-        result = _transcribe_whisper_cpp("/path/to/audio.wav", "small", None, False, None, None, "auto")
+        result = _transcribe_whisper_cpp("/path/to/audio.wav", "small", None, None, None, "auto")
 
-        self.assertEqual(result, "Hello world")
+        self.assertEqual(result.cues, (Cue(0.0, 5.0, "Hello world"),))
         mock_run.assert_called_once()
 
     @patch("sys2txt.transcribe._resolve_whisper_cpp_binary")
@@ -511,7 +537,7 @@ class TestTranscribeWhisperCpp(unittest.TestCase):
             returncode=0,
         )
 
-        _transcribe_whisper_cpp("/path/to/audio.wav", "small", "fr", False, None, None, "auto")
+        _transcribe_whisper_cpp("/path/to/audio.wav", "small", "fr", None, None, "auto")
 
         # Check -l fr is in the command
         call_args = mock_run.call_args[0][0]
@@ -532,7 +558,7 @@ class TestTranscribeWhisperCpp(unittest.TestCase):
             returncode=0,
         )
 
-        _transcribe_whisper_cpp("/path/to/audio.wav", "small", None, False, None, None, "cpu")
+        _transcribe_whisper_cpp("/path/to/audio.wav", "small", None, None, None, "cpu")
 
         call_args = mock_run.call_args[0][0]
         self.assertIn("--no-gpu", call_args)
@@ -551,7 +577,7 @@ class TestTranscribeWhisperCpp(unittest.TestCase):
             returncode=0,
         )
 
-        _transcribe_whisper_cpp("/path/to/audio.wav", "small", None, False, None, None, "vulkan")
+        _transcribe_whisper_cpp("/path/to/audio.wav", "small", None, None, None, "vulkan")
 
         call_args = mock_run.call_args[0][0]
         self.assertNotIn("--no-gpu", call_args)
@@ -575,11 +601,11 @@ class TestTranscribeWhisperCpp(unittest.TestCase):
             returncode=0,
         )
 
-        result = _transcribe_whisper_cpp("/path/to/audio.wav", "small", None, False, None, None, "auto")
+        result = _transcribe_whisper_cpp("/path/to/audio.wav", "small", None, None, None, "auto")
 
         call_args = mock_run.call_args[0][0]
         self.assertNotIn("--no-timestamps", call_args)
-        self.assertEqual(result, "Hello world")
+        self.assertEqual(result.text, "Hello world")
 
     @patch("sys2txt.transcribe._resolve_whisper_cpp_binary")
     @patch("sys2txt.transcribe._resolve_whisper_cpp_model_path")
@@ -595,7 +621,7 @@ class TestTranscribeWhisperCpp(unittest.TestCase):
         mock_run.side_effect = subprocess.CalledProcessError(1, "whisper-cli", stderr="Error: model not found")
 
         with self.assertRaises(RuntimeError) as cm:
-            _transcribe_whisper_cpp("/path/to/audio.wav", "small", None, False, None, None, "auto")
+            _transcribe_whisper_cpp("/path/to/audio.wav", "small", None, None, None, "auto")
 
         self.assertIn("whisper-cli failed", str(cm.exception))
 
@@ -613,7 +639,7 @@ class TestTranscribeWhisperCpp(unittest.TestCase):
         mock_run.side_effect = subprocess.TimeoutExpired(cmd="whisper-cli", timeout=300)
 
         with self.assertRaises(RuntimeError) as cm:
-            _transcribe_whisper_cpp("/path/to/audio.wav", "small", None, False, None, None, "auto")
+            _transcribe_whisper_cpp("/path/to/audio.wav", "small", None, None, None, "auto")
 
         self.assertIn("timed out", str(cm.exception))
 
@@ -654,7 +680,7 @@ class TestModelCacheThreadSafety(unittest.TestCase):
         def worker():
             try:
                 barrier.wait(timeout=5)
-                _transcribe_faster_whisper("/path/to/audio.wav", "small", None, False, device="cpu")
+                _transcribe_faster_whisper("/path/to/audio.wav", "small", None, device="cpu")
             except Exception as e:
                 errors.append(e)
 
