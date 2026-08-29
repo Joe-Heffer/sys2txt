@@ -80,8 +80,8 @@ The codebase is organized into focused modules by functionality:
 - `iter_audio_segments()`: Generator. Spawns ffmpeg with the segment muxer, polls the temporary directory for finalized segments, and yields an `AudioSegment` for each. Indices are tracked by a counter (a segment holding no audio is skipped but still consumes its index). A consumer that breaks out of the loop or closes the generator triggers the `finally` that sends `q` to ffmpeg and removes the temporary directory. No transcription, no printing, no file writing.
 
 **pipeline.py** - Recording and transcription combined:
-- `TranscriptSegment`: Frozen dataclass of `(index, text, start, end)`
-- `transcribe_live()`: Generator over `iter_audio_segments()`, transcribing each segment on a single-worker `ThreadPoolExecutor` with a timeout. A segment that fails or times out is yielded with empty text and logged as a warning.
+- `TranscriptSegment`: Frozen dataclass of `(index, text, start, end, error)` with a `failed` property. `error` is `None` on success and holds the reason on failure, which is what distinguishes a failed segment from a silent one (both have empty `text`).
+- `transcribe_live()`: Generator over `iter_audio_segments()`, transcribing each segment on a single-worker `ThreadPoolExecutor` with a timeout. A segment that fails or times out is yielded with empty text and an `error`, and logged as a warning. A timed-out worker cannot be cancelled, so the pool is abandoned (`_new_executor()` builds a replacement) rather than letting the next segment queue behind it and time out too.
 - `transcribe_once()`: Records to a temporary WAV and returns its transcript
 
 **pulse.py** - PulseAudio/PipeWire integration:
@@ -100,7 +100,7 @@ The codebase is organized into focused modules by functionality:
 - `_parse_whisper_cpp_output()`: Parses whisper.cpp output format
 - All engines support timestamps flag for per-segment timing output
 
-**constants.py** - Configuration shared by library and CLI: default model, capture `SAMPLE_RATE`/`CHANNELS`, segment length and poll interval, minimum segment size, ffmpeg shutdown grace, transcription timeouts.
+**constants.py** - Configuration shared by library and CLI: default model, capture `SAMPLE_RATE`/`CHANNELS`, segment length and poll interval, minimum segment size, ffmpeg shutdown grace, transcription timeouts, `MAX_CONSECUTIVE_SEGMENT_FAILURES`.
 
 **utils.py** - Utility functions:
 - `which()`: Find command in PATH or raise RuntimeError
@@ -110,7 +110,7 @@ The codebase is organized into focused modules by functionality:
 **__main__.py** - CLI entry point, and the only module that prints:
 - argparse with subcommands: `once` and `live`, built by `_build_parser()`
 - `Options`: Frozen dataclass; `_build_options(args)` converts the argparse `Namespace` once and validates it (missing `--input` file, non-positive `--duration`/`--segment-seconds`, `--silence-timeout` shorter than a segment), raising `ValueError` that `main()` turns into a usage error (exit 2)
-- `_run_live()`: Consumes `transcribe_live()`, formatting, printing and appending each segment, and applying the silence-timeout policy by breaking out of the loop
+- `_run_live()`: Consumes `transcribe_live()`, formatting, printing and appending each segment, and applying the stop policies by breaking out of the loop. Silence is measured along the segment timeline (`segment.end` minus the start of the silent stretch), so skipped segments are accounted for. Failed segments never count as silence; `MAX_CONSECUTIVE_SEGMENT_FAILURES` of them in a row saves the transcript and raises `RuntimeError`, which `main()` turns into an error and exit 1
 
 ### Key Dependencies
 - **ffmpeg**: System command for audio recording (checked via shutil.which)

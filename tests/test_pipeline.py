@@ -59,6 +59,17 @@ class TestTranscribeLive(unittest.TestCase):
         mock_iter.assert_called_once_with("test.monitor", 8, sample_rate=16000, channels=1)
         self.assertEqual(mock_transcribe.call_args_list[0][0], ("/tmp/seg_00000.wav", self.config))
 
+    @patch("sys2txt.pipeline.transcribe_file", return_value="hello")
+    @patch("sys2txt.pipeline.iter_audio_segments")
+    def test_transcribed_segment_carries_no_error(self, mock_iter, _transcribe):
+        """A segment that transcribes cleanly is not marked as failed."""
+        mock_iter.return_value = make_segments(1)
+
+        segment = next(iter(transcribe_live("test.monitor", self.config, segment_seconds=8)))
+
+        self.assertIsNone(segment.error)
+        self.assertFalse(segment.failed)
+
     @patch("sys2txt.pipeline.transcribe_file")
     @patch("sys2txt.pipeline.iter_audio_segments")
     def test_failed_segment_yields_empty_text(self, mock_iter, mock_transcribe):
@@ -71,6 +82,23 @@ class TestTranscribeLive(unittest.TestCase):
 
         self.assertEqual([s.text for s in segments], ["", "recovered"])
         self.assertIn("engine exploded", logs.output[0])
+
+    @patch("sys2txt.pipeline.transcribe_file")
+    @patch("sys2txt.pipeline.iter_audio_segments")
+    def test_failed_segment_reports_why_it_failed(self, mock_iter, mock_transcribe):
+        """A failure is distinguishable from silence by the error it carries."""
+        mock_iter.return_value = make_segments(2)
+        mock_transcribe.side_effect = [RuntimeError("engine exploded"), ""]
+
+        with self.assertLogs("sys2txt.pipeline", level="WARNING"):
+            failed, silent = list(transcribe_live("test.monitor", self.config, segment_seconds=8))
+
+        self.assertTrue(failed.failed)
+        self.assertIn("engine exploded", failed.error)
+        # A silent segment looks the same in text alone, which is the bug this guards against
+        self.assertEqual(silent.text, failed.text)
+        self.assertFalse(silent.failed)
+        self.assertIsNone(silent.error)
 
     @patch("sys2txt.pipeline.ThreadPoolExecutor")
     @patch("sys2txt.pipeline.iter_audio_segments")
@@ -86,9 +114,33 @@ class TestTranscribeLive(unittest.TestCase):
             segments = list(transcribe_live("test.monitor", self.config, segment_seconds=8))
 
         self.assertEqual([s.text for s in segments], [""])
+        self.assertTrue(segments[0].failed)
+        self.assertIn("timed out after 60s", segments[0].error)
         self.assertIn("timed out", logs.output[0])
         future.result.assert_called_once_with(timeout=60)
-        executor.shutdown.assert_called_once_with(wait=False)
+        executor.shutdown.assert_called_with(wait=False)
+
+    @patch("sys2txt.pipeline.ThreadPoolExecutor")
+    @patch("sys2txt.pipeline.iter_audio_segments")
+    def test_timeout_abandons_the_pool_so_the_next_segment_is_transcribed(self, mock_iter, mock_executor_cls):
+        """The stranded worker is left behind rather than queueing the next segment behind it."""
+        mock_iter.return_value = make_segments(2)
+        stuck, recovered = MagicMock(), MagicMock()
+        stuck.result.side_effect = FuturesTimeoutError()
+        recovered.result.return_value = "recovered"
+        first, second = MagicMock(), MagicMock()
+        first.submit.return_value = stuck
+        second.submit.return_value = recovered
+        mock_executor_cls.side_effect = [first, second]
+
+        with self.assertLogs("sys2txt.pipeline", level="WARNING"):
+            segments = list(transcribe_live("test.monitor", self.config, segment_seconds=8))
+
+        self.assertEqual([s.text for s in segments], ["", "recovered"])
+        self.assertEqual(mock_executor_cls.call_count, 2)
+        first.shutdown.assert_called_once_with(wait=False)
+        second.submit.assert_called_once()
+        second.shutdown.assert_called_once_with(wait=False)
 
     @patch("sys2txt.pipeline.transcribe_file", return_value="hello")
     @patch("sys2txt.pipeline.iter_audio_segments")
