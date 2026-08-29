@@ -23,9 +23,9 @@ The tool auto-selects `faster-whisper` when available for better speed.
 
 ### Prerequisites
 
-- Ubuntu with PulseAudio or PipeWire (default on modern Ubuntu)
+- Modern linux distribution with PulseAudio or PipeWire (default on modern Ubuntu)
 - ffmpeg
-- Python 3.9+ (recommended)
+- Python 3.10+ (recommended)
 
 ### Install
 
