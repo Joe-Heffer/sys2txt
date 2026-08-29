@@ -42,11 +42,30 @@ def make_args(**overrides):
     return Namespace(**values)
 
 
-def live_segments(*texts, segment_seconds=8):
-    """Yield TranscriptSegment values the way transcribe_live does."""
-    for index, text in enumerate(texts):
+class Failure:
+    """Marker for live_segments(): emit a failed segment instead of transcribed text."""
+
+    def __init__(self, reason="transcription timed out after 60s"):
+        self.reason = reason
+
+
+def live_segments(*items, segment_seconds=8, indices=None):
+    """Yield TranscriptSegment values the way transcribe_live does.
+
+    Each item is either transcript text or a Failure marker. Pass indices to place the
+    segments on the timeline non-contiguously, as happens when empty segments are skipped.
+    """
+    for position, item in enumerate(items):
+        index = indices[position] if indices else position
         start = index * segment_seconds
-        yield TranscriptSegment(index=index, text=text, start=float(start), end=float(start + segment_seconds))
+        failed = isinstance(item, Failure)
+        yield TranscriptSegment(
+            index=index,
+            text="" if failed else item,
+            start=float(start),
+            end=float(start + segment_seconds),
+            error=item.reason if failed else None,
+        )
 
 
 class TestResolveOutputPath(unittest.TestCase):
@@ -413,8 +432,15 @@ class TestModeDispatchOnce(unittest.TestCase):
 class TestModeDispatchLive(unittest.TestCase):
     """Tests for live mode consumption of the transcript stream."""
 
+    def setUp(self):
+        self.exit_code = 0
+
     def _run_live(self, argv, segments):
-        """Run the CLI in live mode against a canned segment stream, returning the transcript file."""
+        """Run the CLI in live mode against a canned segment stream, returning the transcript file.
+
+        A non-zero exit is recorded in self.exit_code rather than raised, so the transcript
+        written before the CLI gave up can still be inspected.
+        """
         with tempfile.TemporaryDirectory() as tmp:
             output_file = os.path.join(tmp, "out.txt")
             with (
@@ -425,7 +451,10 @@ class TestModeDispatchLive(unittest.TestCase):
                 patch("builtins.print") as mock_print,
                 patch("sys.argv", argv),
             ):
-                main()
+                try:
+                    main()
+                except SystemExit as e:
+                    self.exit_code = e.code
             with open(output_file, encoding="utf-8") as f:
                 written = f.read()
         return mock_live, mock_print, written
@@ -472,6 +501,53 @@ class TestModeDispatchLive(unittest.TestCase):
         )
         self.assertEqual(mock_print.call_count, 3)
         self.assertEqual(written, "\n\n\n")
+
+    def test_silence_measured_across_gaps_in_the_timeline(self):
+        """Silence is measured on the recording's timeline, not by counting segments."""
+        # One silent segment at 0-8s, the next at 24-32s: 32s of quiet in two segments
+        segments = live_segments("", "", "should never be reached", indices=[0, 3, 4])
+        _, mock_print, _ = self._run_live(
+            ["sys2txt", "live", "--silence-timeout", "24"],
+            segments,
+        )
+        self.assertEqual(mock_print.call_count, 2)
+        self.assertEqual(self.exit_code, 0)
+
+    def test_failures_do_not_count_as_silence(self):
+        """Transcription failures never accumulate towards the silence timeout."""
+        segments = live_segments(Failure(), "", Failure(), "", Failure(), "hello")
+        _, mock_print, written = self._run_live(
+            ["sys2txt", "live", "--silence-timeout", "16"],
+            segments,
+        )
+        self.assertEqual(mock_print.call_count, 6)
+        self.assertEqual(written, "\n\n\n\n\n" + "hello\n")
+        self.assertEqual(self.exit_code, 0)
+
+    def test_repeated_failures_stop_with_an_error(self):
+        """A persistent failure is reported as a failure, not as silence."""
+        segments = live_segments(Failure(), Failure(), Failure(), "should never be reached")
+        with self.assertLogs("sys2txt.__main__", level="ERROR") as logs:
+            _, mock_print, written = self._run_live(
+                ["sys2txt", "live", "--silence-timeout", "16"],
+                segments,
+            )
+
+        self.assertEqual(self.exit_code, 1)
+        self.assertEqual(mock_print.call_count, 3)
+        self.assertIn("3 consecutive segments", logs.output[0])
+        self.assertIn("timed out", logs.output[0])
+        # The transcript produced before giving up is still saved
+        self.assertEqual(written, "\n\n\n")
+
+    def test_recovered_failures_do_not_stop_the_run(self):
+        """The failure counter only fires on consecutive failures."""
+        segments = live_segments(Failure(), Failure(), "hello", Failure(), Failure())
+        _, mock_print, written = self._run_live(["sys2txt", "live"], segments)
+
+        self.assertEqual(mock_print.call_count, 5)
+        self.assertEqual(written, "\n\nhello\n\n\n")
+        self.assertEqual(self.exit_code, 0)
 
     def test_keyboard_interrupt_saves_what_was_transcribed(self):
         def segments():

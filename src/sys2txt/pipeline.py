@@ -28,20 +28,33 @@ class TranscriptSegment:
 
     Attributes:
         index: Position of the segment in the recording, counting from 0
-        text: Transcribed text, empty when the segment held no speech or transcription failed
+        text: Transcribed text, empty when the segment held no speech or when ``error`` is set
         start: Start of the segment in seconds from the beginning of the recording
         end: End of the segment in seconds from the beginning of the recording
+        error: Why transcription failed, or None when it succeeded. Silence and failure both
+            leave ``text`` empty, so this is what tells them apart.
     """
 
     index: int
     text: str
     start: float
     end: float
+    error: Optional[str] = None
+
+    @property
+    def failed(self) -> bool:
+        """Whether transcription of this segment failed rather than finding no speech."""
+        return self.error is not None
 
 
 def _segment_timeout(segment_seconds: int) -> float:
     """Allow generous time to transcribe a segment while preventing indefinite hangs."""
     return max(segment_seconds * TRANSCRIBE_TIMEOUT_FACTOR, MIN_TRANSCRIBE_TIMEOUT)
+
+
+def _new_executor() -> ThreadPoolExecutor:
+    """Create the single-worker pool that transcribes one segment at a time."""
+    return ThreadPoolExecutor(max_workers=1)
 
 
 def transcribe_live(
@@ -67,29 +80,38 @@ def transcribe_live(
 
     Yields:
         TranscriptSegment values in chronological order. A segment whose transcription times
-        out or fails is yielded with empty text and logged as a warning.
+        out or fails is yielded with empty text, an ``error`` describing the failure, and a
+        warning in the log.
     """
     timeout = _segment_timeout(segment_seconds)
     segments = iter_audio_segments(source, segment_seconds, sample_rate=sample_rate, channels=channels)
-    executor = ThreadPoolExecutor(max_workers=1)
+    executor = _new_executor()
     try:
         with contextlib.closing(segments):
             for segment in segments:
                 future = executor.submit(transcribe_file, segment.path, config)
+                error = None
+                text = ""
                 try:
                     text = future.result(timeout=timeout)
                 except FuturesTimeoutError:
                     logger.warning("Segment %d transcription timed out, skipping", segment.index)
-                    text = ""
+                    error = f"transcription timed out after {timeout:.0f}s"
+                    # The worker cannot be cancelled and keeps running, so the next segment
+                    # would queue behind it and time out without ever being transcribed.
+                    # Abandon the pool and give the next segment a worker of its own.
+                    executor.shutdown(wait=False)
+                    executor = _new_executor()
                 except Exception as e:
                     logger.warning("Segment %d transcription failed: %s", segment.index, e)
-                    text = ""
+                    error = f"transcription failed: {e}"
                 start = segment.index * segment_seconds
                 yield TranscriptSegment(
                     index=segment.index,
                     text=text,
                     start=float(start),
                     end=float(start + segment_seconds),
+                    error=error,
                 )
     finally:
         executor.shutdown(wait=False)
