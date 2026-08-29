@@ -25,6 +25,9 @@ dev = ["ruff>=0.8.0"]
 [tool.setuptools.packages.find]
 where = ["src"]
 
+[tool.setuptools.package-data]
+sys2txt = ["py.typed"]
+
 [tool.ruff]
 line-length = 120
 target-version = "py39"

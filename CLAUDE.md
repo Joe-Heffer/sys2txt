@@ -74,9 +74,15 @@ The codebase is organized into focused modules by functionality:
 
 ### Core Modules
 
-**audio.py** - Audio recording functionality:
-- `record_once()`: Spawns ffmpeg subprocess to record from PulseAudio/PipeWire source to WAV file at 16 kHz mono
-- `segment_and_transcribe_live()`: Spawns ffmpeg with segment muxer to create sequential WAV files, monitors temporary directory for new segments, and calls transcribe callback for each. Uses stdin 'q' command for graceful ffmpeg shutdown on Ctrl-C.
+**audio.py** - Audio recording, and nothing else:
+- `AudioSegment`: Frozen dataclass of `(index, path)` for one finalized chunk of recorded audio
+- `record_once()`: Spawns ffmpeg subprocess to record from PulseAudio/PipeWire source to WAV file. `sample_rate`/`channels` are keyword-only and default to the constants.
+- `iter_audio_segments()`: Generator. Spawns ffmpeg with the segment muxer, polls the temporary directory for finalized segments, and yields an `AudioSegment` for each. Indices are tracked by a counter (a segment holding no audio is skipped but still consumes its index). A consumer that breaks out of the loop or closes the generator triggers the `finally` that sends `q` to ffmpeg and removes the temporary directory. No transcription, no printing, no file writing.
+
+**pipeline.py** - Recording and transcription combined:
+- `TranscriptSegment`: Frozen dataclass of `(index, text, start, end)`
+- `transcribe_live()`: Generator over `iter_audio_segments()`, transcribing each segment on a single-worker `ThreadPoolExecutor` with a timeout. A segment that fails or times out is yielded with empty text and logged as a warning.
+- `transcribe_once()`: Records to a temporary WAV and returns its transcript
 
 **pulse.py** - PulseAudio/PipeWire integration:
 - `list_pulse_sources()`: Uses `pactl list short sources` to enumerate audio sources
@@ -94,13 +100,17 @@ The codebase is organized into focused modules by functionality:
 - `_parse_whisper_cpp_output()`: Parses whisper.cpp output format
 - All engines support timestamps flag for per-segment timing output
 
+**constants.py** - Configuration shared by library and CLI: default model, capture `SAMPLE_RATE`/`CHANNELS`, segment length and poll interval, minimum segment size, ffmpeg shutdown grace, transcription timeouts.
+
 **utils.py** - Utility functions:
 - `which()`: Find command in PATH or raise RuntimeError
 
-**__main__.py** - CLI entry point:
-- argparse with subcommands: `once` and `live`
-- Common parent parser for shared arguments
-- Mode dispatch logic and transcribe callback creation for live mode
+**__init__.py** - The public API. Exports `AudioSegment`, `TranscriptSegment`, `TranscriptionConfig`, `get_default_monitor_source`, `iter_audio_segments`, `list_pulse_sources`, `record_once`, `transcribe_file`, `transcribe_live`, `transcribe_once` and `__version__`. Engine imports stay lazy so importing the package is cheap.
+
+**__main__.py** - CLI entry point, and the only module that prints:
+- argparse with subcommands: `once` and `live`, built by `_build_parser()`
+- `Options`: Frozen dataclass; `_build_options(args)` converts the argparse `Namespace` once and validates it (missing `--input` file, non-positive `--duration`/`--segment-seconds`, `--silence-timeout` shorter than a segment), raising `ValueError` that `main()` turns into a usage error (exit 2)
+- `_run_live()`: Consumes `transcribe_live()`, formatting, printing and appending each segment, and applying the silence-timeout policy by breaking out of the loop
 
 ### Key Dependencies
 - **ffmpeg**: System command for audio recording (checked via shutil.which)
@@ -197,17 +207,23 @@ ruff check --fix src/
 ```
 
 ## File Structure
-- `src/sys2txt/__main__.py`: CLI entry point (~130 lines)
+- `src/sys2txt/__main__.py`: CLI entry point: parsing, validation, printing, output files, stop policy
 - `src/sys2txt/audio.py`: Audio recording with ffmpeg
+- `src/sys2txt/pipeline.py`: Recording and transcription combined (`transcribe_live`, `transcribe_once`)
 - `src/sys2txt/transcribe.py`: Whisper transcription engines
 - `src/sys2txt/pulse.py`: PulseAudio/PipeWire source management
+- `src/sys2txt/constants.py`: Shared configuration values
 - `src/sys2txt/utils.py`: Utility functions
-- `src/sys2txt/__init__.py`: Empty package marker
+- `src/sys2txt/__init__.py`: Public API re-exports and `__version__`
+- `src/sys2txt/py.typed`: Type-hint marker (PEP 561)
 - `tests/`: Unit tests for all modules (using unittest framework)
   - `tests/test_utils.py`: Tests for utility functions
   - `tests/test_pulse.py`: Tests for PulseAudio integration
   - `tests/test_transcribe.py`: Tests for transcription engines
   - `tests/test_audio.py`: Tests for audio recording
+  - `tests/test_pipeline.py`: Tests for the recording/transcription pipeline
+  - `tests/test___main__.py`: Tests for the CLI
+  - `tests/test_init.py`: Tests for the public API surface
 - `.github/workflows/`:
   - `ci.yml`: CI workflow (tests, linting, formatting)
   - `publish-to-pypi.yml`: Publish to PyPI on release

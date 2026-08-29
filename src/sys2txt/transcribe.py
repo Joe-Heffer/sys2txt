@@ -1,5 +1,6 @@
 """Transcription functionality using Whisper models."""
 
+import logging
 import os
 import re
 import shutil
@@ -8,6 +9,10 @@ import threading
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
+
+from .constants import WHISPER_CPP_TIMEOUT
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -54,6 +59,9 @@ def transcribe_file(path: str, config: TranscriptionConfig) -> str:
                 engine = "whisper"
             except ImportError:
                 engine = "cpp"
+        logger.debug("Auto-selected transcription engine: %s", engine)
+
+    logger.debug("Transcribing %s with engine '%s', model '%s'", path, engine, config.model)
 
     if engine == "faster":
         return _transcribe_faster_whisper(path, config.model, config.language, config.timestamps, config.device)
@@ -97,6 +105,7 @@ def _transcribe_faster_whisper(
     key = (model_size, fw_device, compute_type)
     with _model_cache_lock:
         if _faster_whisper_model_key != key:
+            logger.info("Loading faster-whisper model '%s' on %s (%s)", model_size, fw_device, compute_type)
             _faster_whisper_model = WhisperModel(model_size, device=fw_device, compute_type=compute_type)
             _faster_whisper_model_key = key
         model = _faster_whisper_model
@@ -122,6 +131,7 @@ def _transcribe_openai_whisper(path: str, model_size: str, language: Optional[st
     global _openai_whisper_model, _openai_whisper_model_key
     with _model_cache_lock:
         if _openai_whisper_model_key != model_size:
+            logger.info("Loading openai-whisper model '%s'", model_size)
             _openai_whisper_model = whisper.load_model(model_size)
             _openai_whisper_model_key = model_size
         model = _openai_whisper_model
@@ -319,11 +329,13 @@ def _transcribe_whisper_cpp(
     if language:
         cmd.extend(["-l", language])
 
+    logger.debug("Running whisper-cli: %s", " ".join(cmd))
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=300)
+        result = subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=WHISPER_CPP_TIMEOUT)
     except subprocess.TimeoutExpired as e:
         raise RuntimeError(
-            f"whisper-cli timed out after 300 seconds (possible GPU hang or malformed audio): {binary}"
+            f"whisper-cli timed out after {WHISPER_CPP_TIMEOUT} seconds "
+            f"(possible GPU hang or malformed audio): {binary}"
         ) from e
     except subprocess.CalledProcessError as e:
         stderr = e.stderr.strip() if e.stderr else "No error output"

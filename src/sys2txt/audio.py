@@ -6,29 +6,47 @@ import signal
 import subprocess
 import tempfile
 import time
-from concurrent.futures import ThreadPoolExecutor
-from concurrent.futures import TimeoutError as FuturesTimeoutError
-from typing import Optional
+from dataclasses import dataclass
+from typing import Iterator, List, Optional
 
+from .constants import (
+    CHANNELS,
+    DEFAULT_SEGMENT_SECONDS,
+    FFMPEG_SHUTDOWN_GRACE,
+    MIN_SEGMENT_BYTES,
+    SAMPLE_RATE,
+    SEGMENT_POLL_INTERVAL,
+)
 from .utils import which
 
 logger = logging.getLogger(__name__)
 
 
-class _SilenceTimeout(Exception):
-    """Raised internally when consecutive silence exceeds the timeout."""
+@dataclass(frozen=True)
+class AudioSegment:
+    """A finalized chunk of recorded audio.
+
+    Attributes:
+        index: Position of the segment in the recording, counting from 0
+        path: Path to the segment's WAV file. It lives in a temporary directory that is
+            removed once the producing generator is closed, so copy it if you need it later.
+    """
+
+    index: int
+    path: str
 
 
-def _stop_ffmpeg(proc, executor):
-    """Gracefully stop ffmpeg and shut down the transcription executor."""
-    executor.shutdown(wait=False)
+def _stop_ffmpeg(proc: subprocess.Popen) -> None:
+    """Ask ffmpeg to quit, then terminate it if it does not exit in time."""
     try:
+        if proc.poll() is not None:
+            return
         if proc.stdin:
             proc.stdin.write(b"q")
             proc.stdin.flush()
             proc.stdin.close()
         try:
-            proc.wait(timeout=3.0)
+            proc.wait(timeout=FFMPEG_SHUTDOWN_GRACE)
         except subprocess.TimeoutExpired:
             proc.terminate()
             proc.wait()
@@ -36,15 +54,22 @@ def _stop_ffmpeg(proc, executor):
         pass
 
 
-def record_once(source: str, out_wav: str, sample_rate: int, channels: int, duration: Optional[int]) -> None:
+def record_once(
+    source: str,
+    out_wav: str,
+    duration: Optional[int] = None,
+    *,
+    sample_rate: int = SAMPLE_RATE,
+    channels: int = CHANNELS,
+) -> None:
     """Record audio once from a PulseAudio source to a WAV file.
 
     Args:
         source: PulseAudio source name (e.g., "sink.monitor")
         out_wav: Output WAV file path
-        sample_rate: Sample rate in Hz (e.g., 16000)
-        channels: Number of audio channels (1 for mono, 2 for stereo)
         duration: Optional recording duration in seconds. If None, records until interrupted.
+        sample_rate: Sample rate in Hz
+        channels: Number of audio channels (1 for mono, 2 for stereo)
     """
     ffmpeg = which("ffmpeg")
     args = [
@@ -86,54 +111,34 @@ def record_once(source: str, out_wav: str, sample_rate: int, channels: int, dura
     logger.info("Recording finished.")
 
 
-def _process_segment_file(f, tmp, processed, transcribe_callback, output_path, executor, timeout):
-    """Process a single finalized segment file: transcribe and print/write output."""
-    full = os.path.join(tmp, f)
-    if os.path.getsize(full) < 64:
-        return ""
-    processed.add(f)
-    try:
-        idx = int(os.path.splitext(f)[0].split("_")[-1])
-    except (ValueError, IndexError):
-        idx = 0
-    if executor and timeout:
-        future = executor.submit(transcribe_callback, full, idx)
-        try:
-            text = future.result(timeout=timeout)
-        except FuturesTimeoutError:
-            logger.warning("Segment %s transcription timed out, skipping", f)
-            return ""
-        except Exception as e:
-            logger.warning("Segment %s transcription failed: %s", f, e)
-            return ""
-    else:
-        text = transcribe_callback(full, idx)
-    print(text, flush=True)
-    if output_path:
-        with open(output_path, "a", encoding="utf-8") as w:
-            w.write(text + "\n")
-    return text
+def _segment_files(directory: str) -> List[str]:
+    """Return the segment filenames in chronological order."""
+    return sorted(f for f in os.listdir(directory) if f.startswith("seg_") and f.endswith(".wav"))
 
 
-def segment_and_transcribe_live(
+def iter_audio_segments(
     source: str,
-    sample_rate: int,
-    channels: int,
-    segment_seconds: int,
-    transcribe_callback,
-    output_path: Optional[str],
-    silence_timeout: int = 0,
-) -> None:
-    """Record audio in segments and transcribe each segment as it's created.
+    segment_seconds: int = DEFAULT_SEGMENT_SECONDS,
+    *,
+    sample_rate: int = SAMPLE_RATE,
+    channels: int = CHANNELS,
+) -> Iterator[AudioSegment]:
+    """Record continuously and yield each segment of audio as ffmpeg finalizes it.
+
+    Recording runs until the consumer stops iterating: breaking out of the loop, closing the
+    generator, or letting it be garbage collected shuts ffmpeg down gracefully and removes the
+    temporary directory holding the segments.
 
     Args:
         source: PulseAudio source name
+        segment_seconds: Length of each segment in seconds
         sample_rate: Sample rate in Hz
         channels: Number of audio channels
-        segment_seconds: Length of each segment in seconds
-        transcribe_callback: Function to call for each segment. Should accept (file_path, segment_index) and return text
-        output_path: Optional file path to append transcripts to
-        silence_timeout: Auto-stop after this many consecutive seconds of silence (0 = disabled)
+
+    Yields:
+        AudioSegment values in chronological order. Segment files that hold no audio are
+        skipped, but their index is still consumed so an index always maps to the same
+        position on the recording's timeline.
     """
     ffmpeg = which("ffmpeg")
     with tempfile.TemporaryDirectory(prefix="sys2txt_") as tmp:
@@ -160,52 +165,39 @@ def segment_and_transcribe_live(
             pattern,
         ]
 
-        logger.info("Live mode: segmenting every %ds from '%s'. Press Ctrl-C to stop.", segment_seconds, source)
+        logger.info("Live mode: segmenting every %ds from '%s'.", segment_seconds, source)
         proc = subprocess.Popen(args, stdin=subprocess.PIPE, stderr=subprocess.PIPE)
-        processed: set[str] = set()
-        # Timeout: allow generous time but prevent indefinite hangs
-        transcribe_timeout = max(segment_seconds * 5, 60)
-        executor = ThreadPoolExecutor(max_workers=1)
-        consecutive_silent_seconds = 0
+        seen: set[str] = set()
+        next_index = 0
+
+        def emit(names):
+            """Yield an AudioSegment for each name not seen before."""
+            nonlocal next_index
+            for name in names:
+                if name in seen:
+                    continue
+                seen.add(name)
+                index = next_index
+                next_index += 1
+                path = os.path.join(tmp, name)
+                if os.path.getsize(path) < MIN_SEGMENT_BYTES:
+                    logger.debug("Segment %s holds no audio, skipping", name)
+                    continue
+                yield AudioSegment(index=index, path=path)
+
         try:
             while True:
-                # sorted ensures we process in chronological order
-                files = sorted(f for f in os.listdir(tmp) if f.startswith("seg_") and f.endswith(".wav"))
+                files = _segment_files(tmp)
                 # While ffmpeg is running, the last file is always the one currently
                 # being written. Only process files that have been finalized, which is
                 # guaranteed when a newer segment exists after them.
-                safe_to_process = files[:-1] if len(files) > 1 else []
-                new_files = [f for f in safe_to_process if f not in processed]
-                for f in new_files:
-                    text = _process_segment_file(
-                        f, tmp, processed, transcribe_callback, output_path, executor, transcribe_timeout
-                    )
-                    if silence_timeout > 0:
-                        if not text or not text.strip():
-                            consecutive_silent_seconds += segment_seconds
-                        else:
-                            consecutive_silent_seconds = 0
-                        if consecutive_silent_seconds >= silence_timeout:
-                            raise _SilenceTimeout()
+                yield from emit(files[:-1] if len(files) > 1 else [])
 
-                # If ffmpeg has exited and no new files pending, break
-                ret = proc.poll()
-                if ret is not None:
-                    # flush remaining unprocessed files (including the last segment)
-                    files = sorted(f for f in os.listdir(tmp) if f.startswith("seg_") and f.endswith(".wav"))
-                    for f in [f for f in files if f not in processed]:
-                        _process_segment_file(
-                            f, tmp, processed, transcribe_callback, output_path, executor, transcribe_timeout
-                        )
+                if proc.poll() is not None:
+                    # ffmpeg has exited, so every remaining file is finalized
+                    yield from emit(_segment_files(tmp))
                     break
-                time.sleep(0.3)
-        except KeyboardInterrupt:
-            logger.info("Stopping live capture...")
-            _stop_ffmpeg(proc, executor)
+                time.sleep(SEGMENT_POLL_INTERVAL)
+        finally:
+            _stop_ffmpeg(proc)
             logger.info("Stopped live capture.")
-        except _SilenceTimeout:
-            logger.info(
-                "No speech detected for %d seconds, stopping automatically.",
-                consecutive_silent_seconds,
-            )
-            _stop_ffmpeg(proc, executor)

@@ -1,7 +1,10 @@
 """PulseAudio/PipeWire integration for source enumeration and selection."""
 
+import logging
 import subprocess
 from typing import List, Tuple
+
+logger = logging.getLogger(__name__)
 
 
 def run_command(cmd: List[str]) -> Tuple[int, str, str]:
@@ -14,8 +17,9 @@ def run_command(cmd: List[str]) -> Tuple[int, str, str]:
 def list_pulse_sources() -> List[Tuple[str, str]]:
     """Return list of (name, description) for PulseAudio sources."""
     try:
-        code, out, _ = run_command(["pactl", "list", "short", "sources"])
+        code, out, err = run_command(["pactl", "list", "short", "sources"])
         if code != 0:
+            logger.warning("pactl exited with code %d: %s", code, err.strip())
             return []
         items: List[Tuple[str, str]] = []
         for line in out.splitlines():
@@ -26,6 +30,7 @@ def list_pulse_sources() -> List[Tuple[str, str]]:
                 items.append((name, name))
         return items
     except FileNotFoundError:
+        logger.warning("pactl not found. Is PulseAudio/PipeWire installed?")
         return []
 
 
@@ -42,7 +47,9 @@ def get_default_monitor_source() -> str:
         # fallback: first *.monitor source
         for s, _ in list_pulse_sources():
             if s.endswith(".monitor"):
+                logger.debug("Default sink has no monitor source, falling back to '%s'", s)
                 return s
-    except (FileNotFoundError, RuntimeError):
-        pass
+    except (FileNotFoundError, RuntimeError) as e:
+        logger.debug("Could not query PulseAudio for a monitor source: %s", e)
+    logger.debug("No monitor source found, falling back to 'default'")
     return "default"
