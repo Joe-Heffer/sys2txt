@@ -317,6 +317,11 @@ The full public API is `AudioSegment`, `Cue`, `OUTPUT_FORMATS`, `Transcript`, `T
 
 For AMD GPUs (or other GPUs not supported by CUDA), you can use whisper.cpp with Vulkan acceleration, which is substantially faster than CPU-only transcription (the exact speedup depends on your GPU and model size).
 
+sys2txt drives `whisper-cli` with `-oj`/`-of` and reads back its structured JSON output rather than
+scraping the console's human-readable timestamps, so any `whisper-cli` build with `-oj` support works;
+this has been present since well before Vulkan support was added, so a build following the instructions
+below is sufficient.
+
 ### Build whisper.cpp with Vulkan
 
 ```bash
