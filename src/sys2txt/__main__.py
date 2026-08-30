@@ -166,6 +166,22 @@ def _build_transcription_config(options: Options) -> TranscriptionConfig:
     )
 
 
+def _check_output_writable(output_file: str) -> None:
+    """Fail fast if output_file cannot be written to, before recording or transcription starts.
+
+    Raises:
+        RuntimeError: If the path's directory is missing or the file cannot be opened for writing
+    """
+    directory = os.path.dirname(output_file) or "."
+    if not os.path.isdir(directory):
+        raise RuntimeError(f"--output directory does not exist: {directory}")
+    try:
+        with open(output_file, "a", encoding="utf-8"):
+            pass
+    except OSError as e:
+        raise RuntimeError(f"--output path is not writable: {output_file} ({e})") from e
+
+
 def _save_transcript(text: str, output_file: str) -> None:
     """Print transcript, write it to output_file, and log the saved path.
 
@@ -363,6 +379,7 @@ def _list_sources() -> None:
 def _run_once(options: Options, source: str) -> None:
     """Record (or read) a single audio file, transcribe it, and save the transcript."""
     output_file = _resolve_output_path(options.output, options.output_format)
+    _check_output_writable(output_file)
     config = _build_transcription_config(options)
 
     if options.input_path:
@@ -391,6 +408,7 @@ def _emit(chunk: str, handle: TextIO) -> None:
 def _run_live(options: Options, source: str) -> None:
     """Consume live transcript segments, printing and saving each one as it arrives."""
     output_file = _resolve_output_path(options.output, options.output_format)
+    _check_output_writable(output_file)
     config = _build_transcription_config(options)
     logger.info("Live transcript will be saved to: %s", output_file)
     logger.info("Press Ctrl-C once to stop live capture and save the transcript.")
