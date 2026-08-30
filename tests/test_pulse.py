@@ -119,14 +119,15 @@ class TestGetDefaultMonitorSource(unittest.TestCase):
 
     @patch("sys2txt.pulse.list_pulse_sources")
     @patch("sys2txt.pulse.run_command")
-    def test_get_default_monitor_source_exception(self, mock_run, mock_list):
-        """Test get_default_monitor_source() handles exceptions gracefully."""
-        mock_run.side_effect = RuntimeError("Unexpected error")
+    def test_get_default_monitor_source_no_pactl(self, mock_run, mock_list):
+        """Test get_default_monitor_source() handles a missing pactl gracefully."""
+        mock_run.side_effect = FileNotFoundError("pactl not found")
         mock_list.return_value = []
 
         source = get_default_monitor_source()
 
         self.assertEqual(source, "default")
+        mock_list.assert_not_called()
 
 
 if __name__ == "__main__":
