@@ -131,6 +131,15 @@ def _build_options(args: argparse.Namespace) -> Options:
         if args.whisper_cpp_path:
             logger.warning("--whisper-cpp-path is only used with --engine cpp")
 
+    if args.device in ("vulkan", "gpu") and args.engine != "cpp":
+        logger.warning(
+            "--device %s is only honoured by --engine cpp; engine %s will fall back to CPU",
+            args.device,
+            args.engine,
+        )
+    if args.device == "cuda" and args.engine == "cpp":
+        logger.warning("--device cuda is not a whisper.cpp device; --engine cpp will use GPU if available, else CPU")
+
     return Options(
         mode=args.mode,
         source=args.source,
