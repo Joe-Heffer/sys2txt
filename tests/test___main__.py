@@ -12,6 +12,7 @@ from sys2txt.__main__ import (
     Options,
     _build_options,
     _build_transcription_config,
+    _check_output_writable,
     _configure_logging,
     _format_segment,
     _resolve_output_path,
@@ -263,6 +264,24 @@ class TestSaveTranscript(unittest.TestCase):
         mock_logger.info.assert_called_once_with("Transcript saved to: %s", "/out/transcript.txt")
 
 
+class TestCheckOutputWritable(unittest.TestCase):
+    def test_missing_directory_raises_without_touching_disk(self):
+        with self.assertRaisesRegex(RuntimeError, "directory does not exist"):
+            _check_output_writable("/does/not/exist/transcript.txt")
+
+    def test_writable_path_creates_and_leaves_empty_file(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            output_file = os.path.join(tmp, "transcript.txt")
+            _check_output_writable(output_file)
+            self.assertTrue(os.path.isfile(output_file))
+            self.assertEqual(os.path.getsize(output_file), 0)
+
+    def test_unwritable_file_raises_runtime_error(self):
+        with patch("builtins.open", side_effect=OSError("Permission denied")):
+            with self.assertRaisesRegex(RuntimeError, "not writable"):
+                _check_output_writable("/tmp/transcript.txt")
+
+
 class TestArgumentParsing(unittest.TestCase):
     """Tests for CLI argument parsing."""
 
@@ -497,6 +516,17 @@ class TestModeDispatchOnce(unittest.TestCase):
             self.assertEqual(mock_trans.call_args[0][0], audio.name)
         mock_save.assert_called_once_with("from file", "/tmp/out.txt")
 
+    @patch("sys2txt.__main__._configure_logging")
+    @patch("sys2txt.__main__.get_default_monitor_source", return_value="default.monitor")
+    @patch("sys2txt.__main__.transcribe_once_cues")
+    @patch("sys2txt.__main__._resolve_output_path", return_value="/does/not/exist/out.txt")
+    def test_unwritable_output_fails_before_recording(self, _res, mock_once, _src, _log):
+        with patch("sys.argv", ["sys2txt", "once"]):
+            with self.assertRaises(SystemExit) as ctx:
+                main()
+        self.assertEqual(ctx.exception.code, 1)
+        mock_once.assert_not_called()
+
 
 class TestOnceOutputFormats(unittest.TestCase):
     """once mode renders the transcript in the format the user asked for."""
@@ -687,6 +717,19 @@ class LiveRun:
 
 class TestModeDispatchLive(LiveRun, unittest.TestCase):
     """Tests for live mode consumption of the transcript stream."""
+
+    def test_unwritable_output_fails_before_capture(self):
+        with (
+            patch("sys2txt.__main__._configure_logging"),
+            patch("sys2txt.__main__.get_default_monitor_source", return_value="default.monitor"),
+            patch("sys2txt.__main__._resolve_output_path", return_value="/does/not/exist/out.txt"),
+            patch("sys2txt.__main__.transcribe_live") as mock_live,
+            patch("sys.argv", ["sys2txt", "live"]),
+        ):
+            with self.assertRaises(SystemExit) as ctx:
+                main()
+        self.assertEqual(ctx.exception.code, 1)
+        mock_live.assert_not_called()
 
     def test_prints_and_saves_each_segment(self):
         _, mock_print, written = self._run_live(
