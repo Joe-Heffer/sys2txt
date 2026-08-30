@@ -17,7 +17,9 @@ You can use any of three transcription engines:
 - `openai-whisper` - Reference Python implementation
 - [`whisper.cpp`](https://github.com/ggerganov/whisper.cpp) - C++ implementation with Vulkan GPU support for AMD GPUs
 
-The tool auto-selects `faster-whisper` when available for better speed.
+The tool auto-selects the first engine that is installed, preferring `faster-whisper` for its speed,
+then `openai-whisper`, then `whisper.cpp`. With none of them installed it says so, rather than
+failing part-way through one of them.
 
 ## Installation
 
@@ -76,7 +78,8 @@ sys2txt live --model small.en --segment-seconds 8
 - `--list-sources` - List available Pulse sources and exit
 - `--model <size>` - tiny|base|small|medium|large-v2 (default: small)
 - `--engine <auto|faster|whisper|cpp>` - Force a specific engine (default: auto)
-- `--device <auto|cpu|vulkan|gpu|cuda>` - Device for transcription (default: auto)
+- `--device <auto|cpu|vulkan|gpu|cuda>` - Device for transcription (default: auto). `cuda` applies to the
+  Python engines (`faster`, `whisper`), `vulkan`/`gpu` to `cpp`; `auto` reads `SYS2TXT_DEVICE`, else CPU
 - `--language <code>` - Force language code (e.g., en). Omit to auto-detect
 - `--format <txt|srt|vtt|json|tsv>` - Transcript format (default: txt). See [Output formats](#output-formats)
 - `--output <path>` - Write the transcript to a file. Without it, one is written to
@@ -286,6 +289,7 @@ sys2txt once --engine cpp --model small --device cpu
 - PipeWire systems expose PulseAudio-compatible sources, so `-f pulse` in ffmpeg still works.
 - For better performance on CPU, use faster-whisper with model `base` or `small`. For the best accuracy, use `medium` or `large-v2` (these are heavier).
 - GPU acceleration for faster-whisper requires a compatible ctranslate2 CUDA wheel. Set `SYS2TXT_DEVICE=cuda` or use `--device cuda` to enable it.
+- `SYS2TXT_DEVICE`/`--device` apply to openai-whisper too, which needs a CUDA-capable PyTorch build for `cuda`.
 - For AMD GPUs, use whisper.cpp with Vulkan support (see above).
 
 ## Contributing

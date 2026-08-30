@@ -16,6 +16,7 @@ TSV with :func:`render_transcript`.
 from importlib.metadata import PackageNotFoundError, version
 
 from .audio import AudioSegment, iter_audio_segments, record_once
+from .engines import ENGINE_NAMES, TranscriptionEngine
 from .formats import OUTPUT_FORMATS, Cue, Transcript, render_transcript
 from .pipeline import TranscriptSegment, transcribe_live, transcribe_once, transcribe_once_cues
 from .pulse import get_default_monitor_source, list_pulse_sources
@@ -29,10 +30,12 @@ except PackageNotFoundError:  # running from a source tree without an installed 
 __all__ = [
     "AudioSegment",
     "Cue",
+    "ENGINE_NAMES",
     "OUTPUT_FORMATS",
     "Transcript",
     "TranscriptSegment",
     "TranscriptionConfig",
+    "TranscriptionEngine",
     "__version__",
     "get_default_monitor_source",
     "iter_audio_segments",

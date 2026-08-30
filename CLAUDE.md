@@ -100,24 +100,33 @@ The codebase is organized into focused modules by functionality:
 - `get_default_monitor_source()`: Uses `pactl get-default-sink` to find default monitor source, with fallback logic to first `.monitor` source or "default"
 - `run_command()`: Helper for running system commands
 
-**transcribe.py** - Whisper transcription:
-- `TranscriptionConfig`: Dataclass bundling engine, model, device, language, timestamps, model_path, and whisper_cpp_path
-- `transcribe_file_cues(path, config)`: Main entry point. Resolves the engine and returns a `Transcript` of timed `Cue` values
-- `transcribe_file(path, config)`: The text form, `render_transcript(..., "txt", timestamps=config.timestamps)` over the above. Output is unchanged from before formats existed
-- `_transcribe_faster_whisper()`: Uses faster_whisper.WhisperModel with VAD filter
-- `_transcribe_openai_whisper()`: Uses whisper.load_model() and model.transcribe()
-- `_transcribe_whisper_cpp()`: Runs whisper-cli subprocess with GPU/CPU support
+**engines.py** - The transcription engines and the registry that selects between them:
+- `TranscriptionConfig`: Dataclass bundling engine, model, device, language, timestamps, model_path, and whisper_cpp_path. Engines take it whole; nothing destructures it into positional arguments
+- `TranscriptionEngine`: `Protocol` of `name`, `is_available()`, `transcribe(path, config) -> Transcript` and `unload()`
+- `_CachedModelEngine`: Base for engines that load a model. Holds the model, its key and a lock as instance state, reloading only when the key changes. One model per engine: a second would double the memory a transcription needs, and a run only ever uses one
+- `FasterWhisperEngine` (`faster`): faster_whisper.WhisperModel with VAD filter, keyed on `(model, device, compute_type)`
+- `OpenAIWhisperEngine` (`whisper`): `whisper.load_model(model, device=...)`, keyed on `(model, device)`
+- `WhisperCppEngine` (`cpp`): Runs the whisper-cli subprocess with GPU/CPU support. Caches nothing, since the binary loads its own model
+- `_resolve_device()`: `auto` reads `SYS2TXT_DEVICE` then falls back to CPU; the whisper.cpp-only GPU choices (`vulkan`, `gpu`) resolve to CPU for the Python engines
 - `_resolve_whisper_cpp_binary()`: Resolves whisper-cli path from arg/env/PATH
 - `_resolve_whisper_cpp_model_path()`: Resolves model path from arg/env/default
 - `_parse_whisper_cpp_output()`: Parses whisper.cpp's `[HH:MM:SS.mmm --> HH:MM:SS.mmm]` lines into cues
+- `ENGINES`: The registry, in the order `auto` prefers them. `ENGINE_NAMES` derives the `--engine` choices from it, so adding an engine means writing one class and adding it here
+- `get_engine(name)`: `auto` returns the first engine whose `is_available()` is true, raising `RuntimeError` naming all of them if none is installed; a named engine is returned without the availability check, so the user gets that backend's own diagnostic; anything else raises `ValueError`
+- Backends are imported inside the engine that needs them, so importing the package stays cheap
 - Every engine returns a `Transcript`, keeping real per-utterance times; `config.timestamps` only affects plain-text rendering, which happens in `formats.py`
+
+**transcribe.py** - The transcription entry points:
+- `transcribe_file_cues(path, config)`: Asks `get_engine()` for the engine and hands it the config, returning a `Transcript` of timed `Cue` values
+- `transcribe_file(path, config)`: The text form, `render_transcript(..., "txt", timestamps=config.timestamps)` over the above. Output is unchanged from before formats existed
+- Re-exports `TranscriptionConfig` from `engines.py`, so `from sys2txt.transcribe import TranscriptionConfig` keeps working
 
 **constants.py** - Configuration shared by library and CLI: default model, capture `SAMPLE_RATE`/`CHANNELS`, segment length and poll interval, minimum segment size, ffmpeg shutdown grace, transcription timeouts, `MAX_CONSECUTIVE_SEGMENT_FAILURES`, default output format.
 
 **utils.py** - Utility functions:
 - `which()`: Find command in PATH or raise RuntimeError
 
-**__init__.py** - The public API. Exports `AudioSegment`, `Cue`, `OUTPUT_FORMATS`, `Transcript`, `TranscriptSegment`, `TranscriptionConfig`, `get_default_monitor_source`, `iter_audio_segments`, `list_pulse_sources`, `record_once`, `render_transcript`, `transcribe_file`, `transcribe_file_cues`, `transcribe_live`, `transcribe_once`, `transcribe_once_cues` and `__version__`. Engine imports stay lazy so importing the package is cheap.
+**__init__.py** - The public API. Exports `AudioSegment`, `Cue`, `ENGINE_NAMES`, `OUTPUT_FORMATS`, `Transcript`, `TranscriptSegment`, `TranscriptionConfig`, `TranscriptionEngine`, `get_default_monitor_source`, `iter_audio_segments`, `list_pulse_sources`, `record_once`, `render_transcript`, `transcribe_file`, `transcribe_file_cues`, `transcribe_live`, `transcribe_once`, `transcribe_once_cues` and `__version__`. Engine imports stay lazy so importing the package is cheap.
 
 **__main__.py** - CLI entry point, and the only module that prints:
 - argparse with subcommands: `once` and `live`, built by `_build_parser()`
@@ -224,7 +233,8 @@ ruff check --fix src/
 - `src/sys2txt/audio.py`: Audio recording with ffmpeg
 - `src/sys2txt/formats.py`: Transcript cues and the txt/srt/vtt/json/tsv renderers
 - `src/sys2txt/pipeline.py`: Recording and transcription combined (`transcribe_live`, `transcribe_once`)
-- `src/sys2txt/transcribe.py`: Whisper transcription engines
+- `src/sys2txt/engines.py`: The transcription engines, the `TranscriptionEngine` protocol and the registry
+- `src/sys2txt/transcribe.py`: Transcription entry points over the engine registry
 - `src/sys2txt/pulse.py`: PulseAudio/PipeWire source management
 - `src/sys2txt/constants.py`: Shared configuration values
 - `src/sys2txt/utils.py`: Utility functions
@@ -233,7 +243,8 @@ ruff check --fix src/
 - `tests/`: Unit tests for all modules (using unittest framework)
   - `tests/test_utils.py`: Tests for utility functions
   - `tests/test_pulse.py`: Tests for PulseAudio integration
-  - `tests/test_transcribe.py`: Tests for transcription engines
+  - `tests/test_transcribe.py`: Tests for the transcription entry points
+  - `tests/test_engines.py`: Tests for the engines, the registry and the model cache
   - `tests/test_audio.py`: Tests for audio recording
   - `tests/test_formats.py`: Tests for the transcript output formats
   - `tests/test_pipeline.py`: Tests for the recording/transcription pipeline
