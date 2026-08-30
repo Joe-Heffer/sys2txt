@@ -1,9 +1,6 @@
 """Tests for sys2txt.transcribe module."""
 
-import os
-import sys
 import unittest
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 from sys2txt.formats import Cue, Transcript
@@ -16,89 +13,45 @@ def transcript(*texts, language=None):
     return Transcript(cues=cues, language=language)
 
 
+def fake_engine(name, result):
+    """Build a stand-in engine that returns ``result`` from transcribe()."""
+    engine = MagicMock()
+    engine.name = name
+    engine.transcribe.return_value = result
+    return engine
+
+
 class TestTranscribeFile(unittest.TestCase):
     """Tests for the transcribe_file() function."""
 
-    def test_transcribe_file_auto_selects_faster_whisper(self):
-        """Test transcribe_file() auto-selects faster-whisper when available."""
-        with patch.dict("sys.modules", {"faster_whisper": MagicMock()}):
-            with patch("sys2txt.transcribe._transcribe_faster_whisper") as mock_transcribe:
-                mock_transcribe.return_value = transcript("test transcript")
-                result = transcribe_file("/path/to/audio.wav", TranscriptionConfig())
+    def test_renders_the_engine_transcript_as_text(self):
+        engine = fake_engine("faster", transcript("test transcript"))
+
+        with patch("sys2txt.transcribe.get_engine", return_value=engine) as mock_get_engine:
+            result = transcribe_file("/path/to/audio.wav", TranscriptionConfig())
 
         self.assertEqual(result, "test transcript")
-        mock_transcribe.assert_called_once_with("/path/to/audio.wav", "small", None, "auto")
+        mock_get_engine.assert_called_once_with("auto")
 
-    @patch("sys2txt.transcribe._transcribe_faster_whisper")
-    def test_transcribe_file_faster_engine(self, mock_transcribe):
-        """Test transcribe_file() with explicit faster engine."""
-        mock_transcribe.return_value = transcript("faster transcript")
-
+    def test_timestamps_are_rendered_not_asked_of_the_engine(self):
+        """The engine always returns timed cues; --timestamps only affects plain-text rendering."""
+        engine = fake_engine("faster", transcript("faster transcript"))
         config = TranscriptionConfig(engine="faster", model="base", language="en", timestamps=True)
-        result = transcribe_file("/path/to/audio.wav", config)
+
+        with patch("sys2txt.transcribe.get_engine", return_value=engine):
+            result = transcribe_file("/path/to/audio.wav", config)
 
         self.assertEqual(result, "[  0.00-  1.00] faster transcript")
-        mock_transcribe.assert_called_once_with("/path/to/audio.wav", "base", "en", "auto")
 
-    @patch("sys2txt.transcribe._transcribe_openai_whisper")
-    def test_transcribe_file_whisper_engine(self, mock_transcribe):
-        """Test transcribe_file() with explicit whisper engine."""
-        mock_transcribe.return_value = transcript("whisper transcript")
+    def test_the_engine_name_is_lowercased(self):
+        engine = fake_engine("whisper", transcript("whisper transcript"))
 
-        config = TranscriptionConfig(engine="whisper", model="medium", language="fr")
-        result = transcribe_file("/path/to/audio.wav", config)
+        with patch("sys2txt.transcribe.get_engine", return_value=engine) as mock_get_engine:
+            transcribe_file("/path/to/audio.wav", TranscriptionConfig(engine="Whisper"))
 
-        self.assertEqual(result, "whisper transcript")
-        mock_transcribe.assert_called_once_with("/path/to/audio.wav", "medium", "fr")
+        mock_get_engine.assert_called_once_with("whisper")
 
-    @patch("sys2txt.transcribe._transcribe_whisper_cpp")
-    def test_transcribe_file_cpp_engine(self, mock_transcribe):
-        """Test transcribe_file() with cpp engine."""
-        mock_transcribe.return_value = transcript("cpp transcript")
-
-        config = TranscriptionConfig(
-            engine="cpp",
-            model="small",
-            language="en",
-            timestamps=True,
-            model_path="/path/to/model.bin",
-            whisper_cpp_path="/path/to/whisper-cli",
-            device="vulkan",
-        )
-        result = transcribe_file("/path/to/audio.wav", config)
-
-        self.assertEqual(result, "[  0.00-  1.00] cpp transcript")
-        mock_transcribe.assert_called_once_with(
-            "/path/to/audio.wav",
-            "small",
-            "en",
-            "/path/to/model.bin",
-            "/path/to/whisper-cli",
-            "vulkan",
-        )
-
-    def test_transcribe_file_auto_falls_back_to_openai_whisper(self):
-        """Test transcribe_file() auto falls back to openai-whisper when faster-whisper is not installed."""
-        with patch.dict("sys.modules", {"faster_whisper": None, "whisper": MagicMock()}):
-            with patch("sys2txt.transcribe._transcribe_openai_whisper") as mock_transcribe:
-                mock_transcribe.return_value = transcript("fallback transcript")
-                result = transcribe_file("/path/to/audio.wav", TranscriptionConfig())
-
-        self.assertEqual(result, "fallback transcript")
-        mock_transcribe.assert_called_once_with("/path/to/audio.wav", "small", None)
-
-    def test_transcribe_file_auto_falls_back_to_cpp(self):
-        """Test transcribe_file() auto falls back to whisper.cpp when neither Python engine is installed."""
-        with patch.dict("sys.modules", {"faster_whisper": None, "whisper": None}):
-            with patch("sys2txt.transcribe._transcribe_whisper_cpp") as mock_transcribe:
-                mock_transcribe.return_value = transcript("cpp fallback transcript")
-                config = TranscriptionConfig()
-                result = transcribe_file("/path/to/audio.wav", config)
-
-        self.assertEqual(result, "cpp fallback transcript")
-        mock_transcribe.assert_called_once_with("/path/to/audio.wav", "small", None, None, None, "auto")
-
-    def test_transcribe_file_invalid_engine(self):
+    def test_invalid_engine(self):
         """Test transcribe_file() raises ValueError for invalid engine."""
         with self.assertRaises(ValueError) as cm:
             transcribe_file("/path/to/audio.wav", TranscriptionConfig(engine="invalid"))
@@ -110,15 +63,32 @@ class TestTranscribeFile(unittest.TestCase):
 class TestTranscribeFileCues(unittest.TestCase):
     """Tests for the transcribe_file_cues() function."""
 
-    @patch("sys2txt.transcribe._transcribe_faster_whisper")
-    def test_returns_the_engine_transcript_unchanged(self, mock_transcribe):
+    def test_returns_the_engine_transcript_unchanged(self):
         """Test transcribe_file_cues() hands back the engine's cues and language."""
-        mock_transcribe.return_value = transcript("hello", language="en")
+        engine = fake_engine("faster", transcript("hello", language="en"))
 
-        result = transcribe_file_cues("/path/to/audio.wav", TranscriptionConfig(engine="faster"))
+        with patch("sys2txt.transcribe.get_engine", return_value=engine):
+            result = transcribe_file_cues("/path/to/audio.wav", TranscriptionConfig(engine="faster"))
 
         self.assertEqual(result.cues, (Cue(0.0, 1.0, "hello"),))
         self.assertEqual(result.language, "en")
+
+    def test_hands_the_whole_config_to_the_engine(self):
+        """The config travels intact rather than being destructured into positional arguments."""
+        engine = fake_engine("cpp", transcript("cpp transcript"))
+        config = TranscriptionConfig(
+            engine="cpp",
+            model="small",
+            language="en",
+            model_path="/path/to/model.bin",
+            whisper_cpp_path="/path/to/whisper-cli",
+            device="vulkan",
+        )
+
+        with patch("sys2txt.transcribe.get_engine", return_value=engine):
+            transcribe_file_cues("/path/to/audio.wav", config)
+
+        engine.transcribe.assert_called_once_with("/path/to/audio.wav", config)
 
     def test_invalid_engine(self):
         """Test transcribe_file_cues() raises ValueError for an invalid engine."""
@@ -126,572 +96,6 @@ class TestTranscribeFileCues(unittest.TestCase):
             transcribe_file_cues("/path/to/audio.wav", TranscriptionConfig(engine="invalid"))
 
         self.assertIn("Unknown engine", str(cm.exception))
-
-
-class TestTranscribeFasterWhisper(unittest.TestCase):
-    """Tests for the _transcribe_faster_whisper() function."""
-
-    def setUp(self):
-        """Reset cached model between tests."""
-        import sys2txt.transcribe as t
-
-        t._faster_whisper_model = None
-        t._faster_whisper_model_key = None
-
-        if "faster_whisper" not in sys.modules:
-            patcher = patch.dict("sys.modules", {"faster_whisper": MagicMock()})
-            patcher.start()
-            self.addCleanup(patcher.stop)
-
-    @patch("faster_whisper.WhisperModel")
-    def test_transcribe_faster_whisper_no_timestamps(self, mock_model_class):
-        """Test _transcribe_faster_whisper() without timestamps."""
-        from sys2txt.transcribe import _transcribe_faster_whisper
-
-        # Mock segment objects
-        seg1 = MagicMock()
-        seg1.text = " Hello world "
-        seg1.start = 0.0
-        seg1.end = 1.5
-
-        seg2 = MagicMock()
-        seg2.text = " Test audio "
-        seg2.start = 1.5
-        seg2.end = 3.0
-
-        mock_model = mock_model_class.return_value
-        mock_model.transcribe.return_value = ([seg1, seg2], None)
-
-        result = _transcribe_faster_whisper("/path/to/audio.wav", "small", None)
-
-        self.assertEqual(result.cues, (Cue(0.0, 1.5, "Hello world"), Cue(1.5, 3.0, "Test audio")))
-        mock_model.transcribe.assert_called_once_with("/path/to/audio.wav", vad_filter=True, language=None)
-
-    @patch("faster_whisper.WhisperModel")
-    def test_transcribe_faster_whisper_with_timestamps(self, mock_model_class):
-        """Test _transcribe_faster_whisper() with timestamps."""
-        from sys2txt.transcribe import _transcribe_faster_whisper
-
-        # Mock segment objects
-        seg1 = MagicMock()
-        seg1.text = " Hello "
-        seg1.start = 0.0
-        seg1.end = 1.5
-
-        seg2 = MagicMock()
-        seg2.text = " world "
-        seg2.start = 1.5
-        seg2.end = 3.0
-
-        mock_model = mock_model_class.return_value
-        mock_model.transcribe.return_value = ([seg1, seg2], None)
-
-        result = _transcribe_faster_whisper("/path/to/audio.wav", "base", "en")
-
-        self.assertEqual(result.cues, (Cue(0.0, 1.5, "Hello"), Cue(1.5, 3.0, "world")))
-        self.assertEqual(result.language, "en")
-        mock_model.transcribe.assert_called_once_with("/path/to/audio.wav", vad_filter=True, language="en")
-
-    @patch("faster_whisper.WhisperModel")
-    @patch.dict(os.environ, {"SYS2TXT_DEVICE": "cuda"})
-    def test_transcribe_faster_whisper_cuda_device_from_env(self, mock_model_class):
-        """Test _transcribe_faster_whisper() uses CUDA when env var set with auto device."""
-        from sys2txt.transcribe import _transcribe_faster_whisper
-
-        mock_model = mock_model_class.return_value
-        mock_model.transcribe.return_value = ([], None)
-
-        _transcribe_faster_whisper("/path/to/audio.wav", "small", None, device="auto")
-
-        mock_model_class.assert_called_once_with("small", device="cuda", compute_type="float16")
-
-    @patch("faster_whisper.WhisperModel")
-    def test_transcribe_faster_whisper_cuda_device_explicit(self, mock_model_class):
-        """Test _transcribe_faster_whisper() uses CUDA when device=cuda."""
-        from sys2txt.transcribe import _transcribe_faster_whisper
-
-        mock_model = mock_model_class.return_value
-        mock_model.transcribe.return_value = ([], None)
-
-        _transcribe_faster_whisper("/path/to/audio.wav", "small", None, device="cuda")
-
-        mock_model_class.assert_called_once_with("small", device="cuda", compute_type="float16")
-
-    @patch("faster_whisper.WhisperModel")
-    def test_transcribe_faster_whisper_cpu_device_explicit(self, mock_model_class):
-        """Test _transcribe_faster_whisper() uses CPU when device=cpu."""
-        from sys2txt.transcribe import _transcribe_faster_whisper
-
-        mock_model = mock_model_class.return_value
-        mock_model.transcribe.return_value = ([], None)
-
-        _transcribe_faster_whisper("/path/to/audio.wav", "small", None, device="cpu")
-
-        mock_model_class.assert_called_once_with("small", device="cpu", compute_type="int8")
-
-    def test_transcribe_faster_whisper_not_installed(self):
-        """Test _transcribe_faster_whisper() raises RuntimeError when not installed."""
-        from sys2txt.transcribe import _transcribe_faster_whisper
-
-        # Mock the import to fail at the point where it's actually imported in the function
-        with patch.dict("sys.modules", {"faster_whisper": None}):
-            with self.assertRaises(RuntimeError) as cm:
-                _transcribe_faster_whisper("/path/to/audio.wav", "small", None)
-
-            self.assertIn("faster-whisper is not installed", str(cm.exception))
-
-
-class TestTranscribeOpenAIWhisper(unittest.TestCase):
-    """Tests for the _transcribe_openai_whisper() function."""
-
-    def setUp(self):
-        """Reset cached model between tests."""
-        import sys2txt.transcribe as t
-
-        t._openai_whisper_model = None
-        t._openai_whisper_model_key = None
-
-        if "whisper" not in sys.modules:
-            patcher = patch.dict("sys.modules", {"whisper": MagicMock()})
-            patcher.start()
-            self.addCleanup(patcher.stop)
-
-    @patch("whisper.load_model")
-    def test_transcribe_openai_whisper_no_timestamps(self, mock_load_model):
-        """Test _transcribe_openai_whisper() without timestamps."""
-        from sys2txt.transcribe import _transcribe_openai_whisper
-
-        mock_model = MagicMock()
-        mock_load_model.return_value = mock_model
-        mock_model.transcribe.return_value = {"text": " Hello world "}
-
-        result = _transcribe_openai_whisper("/path/to/audio.wav", "small", None)
-
-        self.assertEqual(result.cues, (Cue(0.0, 0.0, "Hello world"),))
-        mock_load_model.assert_called_once_with("small")
-        mock_model.transcribe.assert_called_once_with("/path/to/audio.wav", language=None)
-
-    @patch("whisper.load_model")
-    def test_transcribe_openai_whisper_with_timestamps(self, mock_load_model):
-        """Test _transcribe_openai_whisper() with timestamps."""
-        from sys2txt.transcribe import _transcribe_openai_whisper
-
-        mock_model = MagicMock()
-        mock_load_model.return_value = mock_model
-        mock_model.transcribe.return_value = {
-            "text": "Hello world",
-            "segments": [
-                {"start": 0.0, "end": 1.5, "text": " Hello "},
-                {"start": 1.5, "end": 3.0, "text": " world "},
-            ],
-        }
-
-        result = _transcribe_openai_whisper("/path/to/audio.wav", "base", "en")
-
-        self.assertEqual(result.cues, (Cue(0.0, 1.5, "Hello"), Cue(1.5, 3.0, "world")))
-        self.assertEqual(result.language, "en")
-        mock_model.transcribe.assert_called_once_with("/path/to/audio.wav", language="en")
-
-    def test_transcribe_openai_whisper_not_installed(self):
-        """Test _transcribe_openai_whisper() raises RuntimeError when not installed."""
-        from sys2txt.transcribe import _transcribe_openai_whisper
-
-        # Mock the import to fail at the point where it's actually imported in the function
-        with patch.dict("sys.modules", {"whisper": None}):
-            with self.assertRaises(RuntimeError) as cm:
-                _transcribe_openai_whisper("/path/to/audio.wav", "small", None)
-
-            self.assertIn("openai-whisper is not installed", str(cm.exception))
-
-
-class TestResolveWhisperCppBinary(unittest.TestCase):
-    """Tests for the _resolve_whisper_cpp_binary() function."""
-
-    def test_explicit_path_valid(self):
-        """Test explicit path that exists."""
-        from sys2txt.transcribe import _resolve_whisper_cpp_binary
-
-        with patch("os.path.isfile", return_value=True):
-            result = _resolve_whisper_cpp_binary("/path/to/whisper-cli")
-
-        self.assertEqual(result, "/path/to/whisper-cli")
-
-    def test_explicit_path_invalid(self):
-        """Test explicit path that doesn't exist."""
-        from sys2txt.transcribe import _resolve_whisper_cpp_binary
-
-        with patch("os.path.isfile", return_value=False):
-            with self.assertRaises(RuntimeError) as cm:
-                _resolve_whisper_cpp_binary("/path/to/whisper-cli")
-
-        self.assertIn("not found at", str(cm.exception))
-
-    @patch.dict(os.environ, {"SYS2TXT_WHISPER_CPP": "/env/whisper-cli"})
-    def test_env_var_valid(self):
-        """Test environment variable path that exists."""
-        from sys2txt.transcribe import _resolve_whisper_cpp_binary
-
-        with patch("os.path.isfile", return_value=True):
-            result = _resolve_whisper_cpp_binary(None)
-
-        self.assertEqual(result, "/env/whisper-cli")
-
-    @patch.dict(os.environ, {"SYS2TXT_WHISPER_CPP": "/env/whisper-cli"})
-    def test_env_var_invalid(self):
-        """Test environment variable path that doesn't exist."""
-        from sys2txt.transcribe import _resolve_whisper_cpp_binary
-
-        with patch("os.path.isfile", return_value=False):
-            with self.assertRaises(RuntimeError) as cm:
-                _resolve_whisper_cpp_binary(None)
-
-        self.assertIn("SYS2TXT_WHISPER_CPP", str(cm.exception))
-
-    @patch.dict(os.environ, {}, clear=True)
-    def test_path_lookup_found(self):
-        """Test PATH lookup succeeds."""
-        from sys2txt.transcribe import _resolve_whisper_cpp_binary
-
-        with patch("shutil.which", return_value="/usr/bin/whisper-cli"):
-            result = _resolve_whisper_cpp_binary(None)
-
-        self.assertEqual(result, "/usr/bin/whisper-cli")
-
-    @patch.dict(os.environ, {}, clear=True)
-    def test_path_lookup_not_found(self):
-        """Test PATH lookup fails."""
-        from sys2txt.transcribe import _resolve_whisper_cpp_binary
-
-        with patch("shutil.which", return_value=None):
-            with self.assertRaises(RuntimeError) as cm:
-                _resolve_whisper_cpp_binary(None)
-
-        self.assertIn("whisper-cli binary not found", str(cm.exception))
-
-
-class TestResolveWhisperCppModelPath(unittest.TestCase):
-    """Tests for the _resolve_whisper_cpp_model_path() function."""
-
-    def test_explicit_path_valid(self):
-        """Test explicit model path that exists."""
-        from sys2txt.transcribe import _resolve_whisper_cpp_model_path
-
-        with patch("os.path.isfile", return_value=True):
-            result = _resolve_whisper_cpp_model_path("/path/to/model.bin", "small")
-
-        self.assertEqual(result, "/path/to/model.bin")
-
-    def test_explicit_path_invalid(self):
-        """Test explicit model path that doesn't exist."""
-        from sys2txt.transcribe import _resolve_whisper_cpp_model_path
-
-        with patch("os.path.isfile", return_value=False):
-            with self.assertRaises(RuntimeError) as cm:
-                _resolve_whisper_cpp_model_path("/path/to/model.bin", "small")
-
-        self.assertIn("not found at", str(cm.exception))
-
-    @patch.dict(os.environ, {"SYS2TXT_WHISPER_CPP_MODELS": "/models"})
-    def test_env_var_models_dir(self):
-        """Test models directory from environment variable."""
-        from sys2txt.transcribe import _resolve_whisper_cpp_model_path
-
-        with patch("os.path.isfile", return_value=True):
-            result = _resolve_whisper_cpp_model_path(None, "small")
-
-        self.assertEqual(result, "/models/ggml-small.bin")
-
-    @patch.dict(os.environ, {}, clear=True)
-    def test_default_path(self):
-        """Test default path in ~/.local/share/whisper.cpp/models/."""
-        from sys2txt.transcribe import _resolve_whisper_cpp_model_path
-
-        expected_path = Path.home() / ".local" / "share" / "whisper.cpp" / "models" / "ggml-tiny.bin"
-
-        with patch.object(Path, "is_file", return_value=True):
-            result = _resolve_whisper_cpp_model_path(None, "tiny")
-
-        self.assertEqual(result, str(expected_path))
-
-    @patch.dict(os.environ, {}, clear=True)
-    def test_model_not_found(self):
-        """Test model not found anywhere."""
-        from sys2txt.transcribe import _resolve_whisper_cpp_model_path
-
-        with patch("os.path.isfile", return_value=False):
-            with patch.object(Path, "is_file", return_value=False):
-                with self.assertRaises(RuntimeError) as cm:
-                    _resolve_whisper_cpp_model_path(None, "small")
-
-        self.assertIn("ggml-small.bin", str(cm.exception))
-
-
-class TestParseWhisperCppOutput(unittest.TestCase):
-    """Tests for the _parse_whisper_cpp_output() function."""
-
-    def test_parse_keeps_cue_times(self):
-        """Test parsing whisper.cpp output into cues that keep their times."""
-        from sys2txt.transcribe import _parse_whisper_cpp_output
-
-        output = """[00:00:00.000 --> 00:00:05.120]   Hello world
-[00:00:05.120 --> 00:00:10.240]   This is a test"""
-
-        result = _parse_whisper_cpp_output(output)
-
-        self.assertEqual(
-            result.cues,
-            (Cue(0.0, 5.12, "Hello world"), Cue(5.12, 10.24, "This is a test")),
-        )
-
-    def test_parse_records_the_language(self):
-        """Test that the requested language is recorded on the transcript."""
-        from sys2txt.transcribe import _parse_whisper_cpp_output
-
-        result = _parse_whisper_cpp_output("[00:00:00.000 --> 00:00:05.120]   Bonjour", "fr")
-
-        self.assertEqual(result.language, "fr")
-
-    def test_parse_empty_segments_ignored(self):
-        """Test that empty segments are ignored."""
-        from sys2txt.transcribe import _parse_whisper_cpp_output
-
-        output = """[00:00:00.000 --> 00:00:05.120]   Hello
-[00:00:05.120 --> 00:00:10.240]
-[00:00:10.240 --> 00:00:15.000]   World"""
-
-        result = _parse_whisper_cpp_output(output)
-
-        self.assertEqual(result.text, "Hello World")
-
-    def test_parse_non_matching_lines_ignored(self):
-        """Test that non-matching lines are ignored."""
-        from sys2txt.transcribe import _parse_whisper_cpp_output
-
-        output = """whisper_init_from_file_no_state: loading model...
-[00:00:00.000 --> 00:00:05.120]   Hello world
-main: some debug output"""
-
-        result = _parse_whisper_cpp_output(output)
-
-        self.assertEqual(result.text, "Hello world")
-
-
-class TestTimestampToSeconds(unittest.TestCase):
-    """Tests for the _timestamp_to_seconds() function."""
-
-    def test_simple_seconds(self):
-        """Test simple seconds conversion."""
-        from sys2txt.transcribe import _timestamp_to_seconds
-
-        result = _timestamp_to_seconds("00:00:05.120")
-        self.assertAlmostEqual(result, 5.12, places=3)
-
-    def test_minutes_and_seconds(self):
-        """Test minutes and seconds conversion."""
-        from sys2txt.transcribe import _timestamp_to_seconds
-
-        result = _timestamp_to_seconds("00:02:30.500")
-        self.assertAlmostEqual(result, 150.5, places=3)
-
-    def test_hours_minutes_seconds(self):
-        """Test hours, minutes, and seconds conversion."""
-        from sys2txt.transcribe import _timestamp_to_seconds
-
-        result = _timestamp_to_seconds("01:30:45.750")
-        self.assertAlmostEqual(result, 5445.75, places=3)
-
-
-class TestTranscribeWhisperCpp(unittest.TestCase):
-    """Tests for the _transcribe_whisper_cpp() function."""
-
-    @patch("sys2txt.transcribe._resolve_whisper_cpp_binary")
-    @patch("sys2txt.transcribe._resolve_whisper_cpp_model_path")
-    @patch("subprocess.run")
-    def test_transcribe_success(self, mock_run, mock_model_path, mock_binary):
-        """Test successful transcription."""
-        from sys2txt.transcribe import _transcribe_whisper_cpp
-
-        mock_binary.return_value = "/path/to/whisper-cli"
-        mock_model_path.return_value = "/path/to/model.bin"
-        mock_run.return_value = MagicMock(
-            stdout="[00:00:00.000 --> 00:00:05.000]   Hello world\n",
-            returncode=0,
-        )
-
-        result = _transcribe_whisper_cpp("/path/to/audio.wav", "small", None, None, None, "auto")
-
-        self.assertEqual(result.cues, (Cue(0.0, 5.0, "Hello world"),))
-        mock_run.assert_called_once()
-
-    @patch("sys2txt.transcribe._resolve_whisper_cpp_binary")
-    @patch("sys2txt.transcribe._resolve_whisper_cpp_model_path")
-    @patch("subprocess.run")
-    def test_transcribe_with_language(self, mock_run, mock_model_path, mock_binary):
-        """Test transcription with language specified."""
-        from sys2txt.transcribe import _transcribe_whisper_cpp
-
-        mock_binary.return_value = "/path/to/whisper-cli"
-        mock_model_path.return_value = "/path/to/model.bin"
-        mock_run.return_value = MagicMock(
-            stdout="[00:00:00.000 --> 00:00:05.000]   Bonjour\n",
-            returncode=0,
-        )
-
-        _transcribe_whisper_cpp("/path/to/audio.wav", "small", "fr", None, None, "auto")
-
-        # Check -l fr is in the command
-        call_args = mock_run.call_args[0][0]
-        self.assertIn("-l", call_args)
-        self.assertIn("fr", call_args)
-
-    @patch("sys2txt.transcribe._resolve_whisper_cpp_binary")
-    @patch("sys2txt.transcribe._resolve_whisper_cpp_model_path")
-    @patch("subprocess.run")
-    def test_transcribe_cpu_device(self, mock_run, mock_model_path, mock_binary):
-        """Test transcription with CPU device adds --no-gpu flag."""
-        from sys2txt.transcribe import _transcribe_whisper_cpp
-
-        mock_binary.return_value = "/path/to/whisper-cli"
-        mock_model_path.return_value = "/path/to/model.bin"
-        mock_run.return_value = MagicMock(
-            stdout="[00:00:00.000 --> 00:00:05.000]   Hello\n",
-            returncode=0,
-        )
-
-        _transcribe_whisper_cpp("/path/to/audio.wav", "small", None, None, None, "cpu")
-
-        call_args = mock_run.call_args[0][0]
-        self.assertIn("--no-gpu", call_args)
-
-    @patch("sys2txt.transcribe._resolve_whisper_cpp_binary")
-    @patch("sys2txt.transcribe._resolve_whisper_cpp_model_path")
-    @patch("subprocess.run")
-    def test_transcribe_vulkan_device(self, mock_run, mock_model_path, mock_binary):
-        """Test transcription with Vulkan device does not add --no-gpu."""
-        from sys2txt.transcribe import _transcribe_whisper_cpp
-
-        mock_binary.return_value = "/path/to/whisper-cli"
-        mock_model_path.return_value = "/path/to/model.bin"
-        mock_run.return_value = MagicMock(
-            stdout="[00:00:00.000 --> 00:00:05.000]   Hello\n",
-            returncode=0,
-        )
-
-        _transcribe_whisper_cpp("/path/to/audio.wav", "small", None, None, None, "vulkan")
-
-        call_args = mock_run.call_args[0][0]
-        self.assertNotIn("--no-gpu", call_args)
-
-    @patch("sys2txt.transcribe._resolve_whisper_cpp_binary")
-    @patch("sys2txt.transcribe._resolve_whisper_cpp_model_path")
-    @patch("subprocess.run")
-    def test_transcribe_no_timestamps_does_not_pass_no_timestamps_flag(self, mock_run, mock_model_path, mock_binary):
-        """Regression test for #42: --no-timestamps must never be passed to whisper-cli.
-
-        whisper-cli only emits bracketed timestamp lines when timestamps are enabled;
-        with --no-timestamps its plain-text output doesn't match the parser's regex,
-        so the transcript would silently come back empty.
-        """
-        from sys2txt.transcribe import _transcribe_whisper_cpp
-
-        mock_binary.return_value = "/path/to/whisper-cli"
-        mock_model_path.return_value = "/path/to/model.bin"
-        mock_run.return_value = MagicMock(
-            stdout="[00:00:00.000 --> 00:00:05.000]   Hello world\n",
-            returncode=0,
-        )
-
-        result = _transcribe_whisper_cpp("/path/to/audio.wav", "small", None, None, None, "auto")
-
-        call_args = mock_run.call_args[0][0]
-        self.assertNotIn("--no-timestamps", call_args)
-        self.assertEqual(result.text, "Hello world")
-
-    @patch("sys2txt.transcribe._resolve_whisper_cpp_binary")
-    @patch("sys2txt.transcribe._resolve_whisper_cpp_model_path")
-    @patch("subprocess.run")
-    def test_transcribe_failure(self, mock_run, mock_model_path, mock_binary):
-        """Test transcription failure raises RuntimeError."""
-        import subprocess
-
-        from sys2txt.transcribe import _transcribe_whisper_cpp
-
-        mock_binary.return_value = "/path/to/whisper-cli"
-        mock_model_path.return_value = "/path/to/model.bin"
-        mock_run.side_effect = subprocess.CalledProcessError(1, "whisper-cli", stderr="Error: model not found")
-
-        with self.assertRaises(RuntimeError) as cm:
-            _transcribe_whisper_cpp("/path/to/audio.wav", "small", None, None, None, "auto")
-
-        self.assertIn("whisper-cli failed", str(cm.exception))
-
-    @patch("sys2txt.transcribe._resolve_whisper_cpp_binary")
-    @patch("sys2txt.transcribe._resolve_whisper_cpp_model_path")
-    @patch("subprocess.run")
-    def test_transcribe_timeout_raises_runtime_error(self, mock_run, mock_model_path, mock_binary):
-        """Test that a hung whisper-cli process raises RuntimeError after timeout."""
-        import subprocess
-
-        from sys2txt.transcribe import _transcribe_whisper_cpp
-
-        mock_binary.return_value = "/path/to/whisper-cli"
-        mock_model_path.return_value = "/path/to/model.bin"
-        mock_run.side_effect = subprocess.TimeoutExpired(cmd="whisper-cli", timeout=300)
-
-        with self.assertRaises(RuntimeError) as cm:
-            _transcribe_whisper_cpp("/path/to/audio.wav", "small", None, None, None, "auto")
-
-        self.assertIn("timed out", str(cm.exception))
-
-
-class TestModelCacheThreadSafety(unittest.TestCase):
-    """Tests that model caching is thread-safe."""
-
-    def setUp(self):
-        """Reset cached model between tests."""
-        import sys2txt.transcribe as t
-
-        t._faster_whisper_model = None
-        t._faster_whisper_model_key = None
-
-        if "faster_whisper" not in sys.modules:
-            patcher = patch.dict("sys.modules", {"faster_whisper": MagicMock()})
-            patcher.start()
-            self.addCleanup(patcher.stop)
-
-    @patch("faster_whisper.WhisperModel")
-    def test_concurrent_calls_load_model_once(self, mock_model_class):
-        """Concurrent transcriptions with same params should only load the model once."""
-        import threading
-
-        from sys2txt.transcribe import _transcribe_faster_whisper
-
-        seg = MagicMock()
-        seg.text = " Hello "
-        seg.start = 0.0
-        seg.end = 1.0
-
-        mock_model = mock_model_class.return_value
-        mock_model.transcribe.return_value = ([seg], None)
-
-        barrier = threading.Barrier(4)
-        errors = []
-
-        def worker():
-            try:
-                barrier.wait(timeout=5)
-                _transcribe_faster_whisper("/path/to/audio.wav", "small", None, device="cpu")
-            except Exception as e:
-                errors.append(e)
-
-        threads = [threading.Thread(target=worker) for _ in range(4)]
-        for t in threads:
-            t.start()
-        for t in threads:
-            t.join(timeout=10)
-
-        self.assertEqual(errors, [])
-        mock_model_class.assert_called_once_with("small", device="cpu", compute_type="int8")
 
 
 if __name__ == "__main__":

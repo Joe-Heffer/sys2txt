@@ -23,10 +23,12 @@ class TestPublicApi(unittest.TestCase):
             [
                 "AudioSegment",
                 "Cue",
+                "ENGINE_NAMES",
                 "OUTPUT_FORMATS",
                 "Transcript",
                 "TranscriptSegment",
                 "TranscriptionConfig",
+                "TranscriptionEngine",
                 "__version__",
                 "get_default_monitor_source",
                 "iter_audio_segments",

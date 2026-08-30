@@ -17,6 +17,7 @@ from .constants import (
     MAX_CONSECUTIVE_SEGMENT_FAILURES,
     WHISPER_MODEL,
 )
+from .engines import ENGINE_NAMES
 from .formats import FORMAT_EXTENSIONS, OUTPUT_FORMATS, TIMED_FORMATS, get_formatter, render_transcript
 from .pipeline import TranscriptSegment, transcribe_live, transcribe_once_cues
 from .pulse import get_default_monitor_source, list_pulse_sources
@@ -232,7 +233,7 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     common.add_argument(
         "--engine",
-        choices=["auto", "faster", "whisper", "cpp"],
+        choices=list(ENGINE_NAMES),
         default="auto",
         help="Transcription engine (default: auto)",
     )

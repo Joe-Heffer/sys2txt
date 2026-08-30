@@ -1,40 +1,19 @@
-"""Transcription functionality using Whisper models."""
+"""Transcription entry points.
+
+Turning an audio file into a transcript is two decisions: which engine, and what the
+result should look like. This module makes the first by asking
+:func:`sys2txt.engines.get_engine`, and leaves the second to :mod:`sys2txt.formats`.
+The engines themselves live in :mod:`sys2txt.engines`.
+"""
 
 import logging
-import os
-import re
-import shutil
-import subprocess
-import threading
-from dataclasses import dataclass
-from pathlib import Path
-from typing import List, Optional
 
-from .constants import WHISPER_CPP_TIMEOUT
-from .formats import Cue, Transcript, render_transcript
+from .engines import TranscriptionConfig, get_engine
+from .formats import Transcript, render_transcript
 
 logger = logging.getLogger(__name__)
 
-
-@dataclass
-class TranscriptionConfig:
-    """Configuration for transcription that stays constant across calls."""
-
-    engine: str = "auto"
-    model: str = "small"
-    device: str = "auto"
-    language: Optional[str] = None
-    timestamps: bool = False
-    model_path: Optional[str] = None
-    whisper_cpp_path: Optional[str] = None
-
-
-# Cached model instances to avoid expensive reloads on every segment
-_faster_whisper_model = None
-_faster_whisper_model_key: Optional[tuple] = None
-_openai_whisper_model = None
-_openai_whisper_model_key: Optional[str] = None
-_model_cache_lock = threading.Lock()
+__all__ = ["TranscriptionConfig", "transcribe_file", "transcribe_file_cues"]
 
 
 def transcribe_file(path: str, config: TranscriptionConfig) -> str:
@@ -49,6 +28,7 @@ def transcribe_file(path: str, config: TranscriptionConfig) -> str:
 
     Raises:
         ValueError: If the configured engine is unknown
+        RuntimeError: If ``config.engine`` is ``"auto"`` and no engine is installed
     """
     transcript = transcribe_file_cues(path, config)
     return render_transcript(transcript.cues, "txt", timestamps=config.timestamps)
@@ -69,293 +49,8 @@ def transcribe_file_cues(path: str, config: TranscriptionConfig) -> Transcript:
 
     Raises:
         ValueError: If the configured engine is unknown
+        RuntimeError: If ``config.engine`` is ``"auto"`` and no engine is installed
     """
-    engine = config.engine.lower()
-    if engine == "auto":
-        try:
-            import faster_whisper  # noqa: F401
-
-            engine = "faster"
-        except ImportError:
-            try:
-                import whisper  # noqa: F401
-
-                engine = "whisper"
-            except ImportError:
-                engine = "cpp"
-        logger.debug("Auto-selected transcription engine: %s", engine)
-
-    logger.debug("Transcribing %s with engine '%s', model '%s'", path, engine, config.model)
-
-    if engine == "faster":
-        return _transcribe_faster_whisper(path, config.model, config.language, config.device)
-    elif engine == "whisper":
-        return _transcribe_openai_whisper(path, config.model, config.language)
-    elif engine == "cpp":
-        return _transcribe_whisper_cpp(
-            path,
-            config.model,
-            config.language,
-            config.model_path,
-            config.whisper_cpp_path,
-            config.device,
-        )
-    else:
-        raise ValueError(f"Unknown engine: {engine}")
-
-
-def _transcribe_faster_whisper(path: str, model_size: str, language: Optional[str], device: str = "auto") -> Transcript:
-    """Transcribe using faster-whisper (ctranslate2 backend)."""
-    try:
-        from faster_whisper import WhisperModel  # type: ignore
-    except ImportError as e:
-        raise RuntimeError("faster-whisper is not installed. pip install faster-whisper") from e
-
-    # Device selection: CLI arg > env var > default (cpu)
-    if device == "auto":
-        device = os.environ.get("SYS2TXT_DEVICE", "cpu")
-
-    if device == "cuda":
-        fw_device = "cuda"
-        compute_type = "float16"
-    else:
-        fw_device = "cpu"
-        compute_type = "int8"
-
-    global _faster_whisper_model, _faster_whisper_model_key
-    key = (model_size, fw_device, compute_type)
-    with _model_cache_lock:
-        if _faster_whisper_model_key != key:
-            logger.info("Loading faster-whisper model '%s' on %s (%s)", model_size, fw_device, compute_type)
-            _faster_whisper_model = WhisperModel(model_size, device=fw_device, compute_type=compute_type)
-            _faster_whisper_model_key = key
-        model = _faster_whisper_model
-    segments, info = model.transcribe(path, vad_filter=True, language=language)
-    cues = tuple(Cue(start=float(seg.start), end=float(seg.end), text=seg.text.strip()) for seg in segments)
-    return Transcript(cues=cues, language=getattr(info, "language", None) or language)
-
-
-def _transcribe_openai_whisper(path: str, model_size: str, language: Optional[str]) -> Transcript:
-    """Transcribe using openai-whisper (reference implementation)."""
-    try:
-        import whisper  # type: ignore
-    except ImportError as e:
-        raise RuntimeError("openai-whisper is not installed. pip install openai-whisper") from e
-
-    global _openai_whisper_model, _openai_whisper_model_key
-    with _model_cache_lock:
-        if _openai_whisper_model_key != model_size:
-            logger.info("Loading openai-whisper model '%s'", model_size)
-            _openai_whisper_model = whisper.load_model(model_size)
-            _openai_whisper_model_key = model_size
-        model = _openai_whisper_model
-    result = model.transcribe(path, language=language)
-    detected = result.get("language") or language
-    segments = result.get("segments") or []
-    if segments:
-        cues = tuple(
-            Cue(
-                start=float(seg.get("start", 0.0)),
-                end=float(seg.get("end", 0.0)),
-                text=seg.get("text", "").strip(),
-            )
-            for seg in segments
-        )
-    else:
-        # Untimed fallback: the whole transcript as a single cue of unknown extent.
-        text = result.get("text", "").strip()
-        cues = (Cue(start=0.0, end=0.0, text=text),) if text else ()
-    return Transcript(cues=cues, language=detected)
-
-
-def _resolve_whisper_cpp_binary(whisper_cpp_path: Optional[str]) -> str:
-    """Resolve the path to the whisper-cli binary.
-
-    Priority:
-    1. Explicit path argument
-    2. SYS2TXT_WHISPER_CPP environment variable
-    3. PATH lookup for 'whisper-cli'
-
-    Args:
-        whisper_cpp_path: Explicit path to whisper-cli binary
-
-    Returns:
-        Path to whisper-cli binary
-
-    Raises:
-        RuntimeError: If binary cannot be found
-    """
-    if whisper_cpp_path:
-        if not os.path.isfile(whisper_cpp_path):
-            raise RuntimeError(f"whisper-cli binary not found at: {whisper_cpp_path}")
-        return whisper_cpp_path
-
-    env_path = os.environ.get("SYS2TXT_WHISPER_CPP")
-    if env_path:
-        if not os.path.isfile(env_path):
-            raise RuntimeError(f"whisper-cli binary not found at SYS2TXT_WHISPER_CPP: {env_path}")
-        return env_path
-
-    path_lookup = shutil.which("whisper-cli")
-    if path_lookup:
-        return path_lookup
-
-    raise RuntimeError(
-        "whisper-cli binary not found. Install whisper.cpp and either:\n"
-        "  1. Add whisper-cli to PATH\n"
-        "  2. Set SYS2TXT_WHISPER_CPP environment variable\n"
-        "  3. Use --whisper-cpp-path argument"
-    )
-
-
-def _resolve_whisper_cpp_model_path(model_path: Optional[str], model_size: str) -> str:
-    """Resolve the path to a whisper.cpp model file.
-
-    Priority:
-    1. Explicit model_path argument
-    2. SYS2TXT_WHISPER_CPP_MODELS directory + ggml-{model_size}.bin
-    3. ~/.local/share/whisper.cpp/models/ggml-{model_size}.bin
-
-    Args:
-        model_path: Explicit path to model file
-        model_size: Whisper model size (tiny, base, small, medium, large-v2)
-
-    Returns:
-        Path to model file
-
-    Raises:
-        RuntimeError: If model file cannot be found
-    """
-    if model_path:
-        if not os.path.isfile(model_path):
-            raise RuntimeError(f"whisper.cpp model not found at: {model_path}")
-        return model_path
-
-    model_filename = f"ggml-{model_size}.bin"
-
-    env_models_dir = os.environ.get("SYS2TXT_WHISPER_CPP_MODELS")
-    if env_models_dir:
-        env_model_path = os.path.join(env_models_dir, model_filename)
-        if os.path.isfile(env_model_path):
-            return env_model_path
-
-    default_dir = Path.home() / ".local" / "share" / "whisper.cpp" / "models"
-    default_path = default_dir / model_filename
-    if default_path.is_file():
-        return str(default_path)
-
-    raise RuntimeError(
-        f"whisper.cpp model '{model_filename}' not found. Either:\n"
-        "  1. Use --model-path to specify the model file\n"
-        f"  2. Set SYS2TXT_WHISPER_CPP_MODELS to directory containing {model_filename}\n"
-        f"  3. Place model at {default_path}"
-    )
-
-
-def _parse_whisper_cpp_output(output: str, language: Optional[str] = None) -> Transcript:
-    """Parse whisper.cpp stdout format.
-
-    Whisper.cpp outputs lines like:
-    [00:00:00.000 --> 00:00:05.120]   Hello world
-
-    Args:
-        output: Raw stdout from whisper-cli
-        language: Language code the caller asked for, recorded on the transcript
-
-    Returns:
-        The transcript parsed out of the timestamped lines
-    """
-    cues: List[Cue] = []
-    # Pattern: [HH:MM:SS.mmm --> HH:MM:SS.mmm] text
-    pattern = re.compile(r"\[(\d{2}:\d{2}:\d{2}\.\d{3})\s*-->\s*(\d{2}:\d{2}:\d{2}\.\d{3})\]\s*(.*)")
-
-    for line in output.splitlines():
-        match = pattern.match(line.strip())
-        if match:
-            start_str, end_str, text = match.groups()
-            text = text.strip()
-            if not text:
-                continue
-            cues.append(
-                Cue(
-                    start=_timestamp_to_seconds(start_str),
-                    end=_timestamp_to_seconds(end_str),
-                    text=text,
-                )
-            )
-
-    return Transcript(cues=tuple(cues), language=language)
-
-
-def _timestamp_to_seconds(ts: str) -> float:
-    """Convert HH:MM:SS.mmm timestamp to seconds.
-
-    Args:
-        ts: Timestamp string like "00:01:23.456"
-
-    Returns:
-        Time in seconds as float
-    """
-    try:
-        parts = ts.split(":")
-        hours = int(parts[0])
-        minutes = int(parts[1])
-        seconds = float(parts[2])
-        return hours * 3600 + minutes * 60 + seconds
-    except (IndexError, ValueError):
-        return 0.0
-
-
-def _transcribe_whisper_cpp(
-    path: str,
-    model_size: str,
-    language: Optional[str],
-    model_path: Optional[str],
-    whisper_cpp_path: Optional[str],
-    device: str,
-) -> Transcript:
-    """Transcribe using whisper.cpp (with optional Vulkan GPU support).
-
-    Args:
-        path: Path to audio file
-        model_size: Whisper model size (tiny, base, small, medium, large-v2)
-        language: Optional language code (e.g., "en"). If None, auto-detect.
-        model_path: Path to whisper.cpp model file
-        whisper_cpp_path: Path to whisper-cli binary
-        device: Device to use ("auto", "cpu", "vulkan", "gpu", "cuda")
-
-    Returns:
-        The transcript, with cue times parsed from whisper-cli's output
-
-    Raises:
-        RuntimeError: If whisper-cli binary or model not found, or transcription fails
-    """
-    binary = _resolve_whisper_cpp_binary(whisper_cpp_path)
-    model = _resolve_whisper_cpp_model_path(model_path, model_size)
-
-    # Build command
-    cmd = [binary, "-m", model, "-f", path, "-np"]  # -np = no progress
-
-    # Device selection
-    if device == "cpu":
-        cmd.append("--no-gpu")
-    # For auto/vulkan/gpu/cuda, let whisper.cpp use GPU if available
-
-    if language:
-        cmd.extend(["-l", language])
-
-    logger.debug("Running whisper-cli: %s", " ".join(cmd))
-    try:
-        result = subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=WHISPER_CPP_TIMEOUT)
-    except subprocess.TimeoutExpired as e:
-        raise RuntimeError(
-            f"whisper-cli timed out after {WHISPER_CPP_TIMEOUT} seconds "
-            f"(possible GPU hang or malformed audio): {binary}"
-        ) from e
-    except subprocess.CalledProcessError as e:
-        stderr = e.stderr.strip() if e.stderr else "No error output"
-        raise RuntimeError(f"whisper-cli failed: {stderr}") from e
-    except FileNotFoundError as e:
-        raise RuntimeError(f"whisper-cli binary not found: {binary}") from e
-
-    return _parse_whisper_cpp_output(result.stdout, language)
+    engine = get_engine(config.engine.lower())
+    logger.debug("Transcribing %s with engine '%s', model '%s'", path, engine.name, config.model)
+    return engine.transcribe(path, config)
