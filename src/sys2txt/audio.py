@@ -64,8 +64,30 @@ def _drain_stderr(proc: subprocess.Popen, lines: Optional[List[str]] = None) -> 
                 lines.append(text)
 
 
+def _wait_or_escalate(proc: subprocess.Popen) -> None:
+    """Wait for ffmpeg to exit, escalating from terminate() to kill() if it ignores each.
+
+    Bounded at two grace periods total, so a wedged ffmpeg (see #52) cannot hang shutdown
+    indefinitely: a process that ignores SIGTERM is killed outright rather than waited on
+    forever.
+    """
+    try:
+        proc.wait(timeout=FFMPEG_SHUTDOWN_GRACE)
+        return
+    except subprocess.TimeoutExpired:
+        pass
+    proc.terminate()
+    try:
+        proc.wait(timeout=FFMPEG_SHUTDOWN_GRACE)
+        return
+    except subprocess.TimeoutExpired:
+        pass
+    proc.kill()
+    proc.wait()
+
+
 def _stop_ffmpeg(proc: subprocess.Popen) -> None:
-    """Ask ffmpeg to quit, then terminate it if it does not exit in time."""
+    """Ask ffmpeg to quit, then terminate/kill it if it does not exit in time."""
     try:
         if proc.poll() is not None:
             return
@@ -73,11 +95,7 @@ def _stop_ffmpeg(proc: subprocess.Popen) -> None:
             proc.stdin.write(b"q")
             proc.stdin.flush()
             proc.stdin.close()
-        try:
-            proc.wait(timeout=FFMPEG_SHUTDOWN_GRACE)
-        except subprocess.TimeoutExpired:
-            proc.terminate()
-            proc.wait()
+        _wait_or_escalate(proc)
     except OSError:
         pass
 
@@ -144,7 +162,7 @@ def record_once(
             proc.send_signal(signal.SIGINT)
         except OSError:
             pass
-        proc.wait()
+        _wait_or_escalate(proc)
     stderr_thread.join()
 
     if not interrupted and proc.returncode != 0:

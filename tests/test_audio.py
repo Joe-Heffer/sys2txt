@@ -2,13 +2,14 @@
 
 import os
 import signal
+import subprocess
 import tempfile
 import threading
 import unittest
 from itertools import chain, repeat
 from unittest.mock import MagicMock, patch
 
-from sys2txt.audio import AudioSegment, iter_audio_segments, record_once
+from sys2txt.audio import AudioSegment, _stop_ffmpeg, iter_audio_segments, record_once
 
 
 def _mock_proc(returncode: int = 0, stderr_lines: list = ()) -> MagicMock:
@@ -120,6 +121,67 @@ class TestRecordOnce(unittest.TestCase):
             record_once("test.monitor", "/tmp/test.wav")
 
         self.assertIn("1", str(ctx.exception))
+
+
+class TestStopFfmpeg(unittest.TestCase):
+    """Tests for the _stop_ffmpeg() shutdown helper."""
+
+    def test_already_exited_does_nothing(self):
+        """A process that has already exited is left alone."""
+        proc = MagicMock()
+        proc.poll.return_value = 0
+
+        _stop_ffmpeg(proc)
+
+        proc.stdin.write.assert_not_called()
+        proc.wait.assert_not_called()
+
+    def test_quits_on_q(self):
+        """The common path: ffmpeg exits after being asked to quit."""
+        proc = MagicMock()
+        proc.poll.return_value = None
+        proc.wait.return_value = None
+
+        _stop_ffmpeg(proc)
+
+        proc.stdin.write.assert_called_once_with(b"q")
+        proc.terminate.assert_not_called()
+        proc.kill.assert_not_called()
+
+    def test_escalates_to_terminate_then_kill(self):
+        """A process that ignores both the quit signal and SIGTERM is killed, not waited on forever."""
+        proc = MagicMock()
+        proc.poll.return_value = None
+        proc.wait.side_effect = [
+            subprocess.TimeoutExpired(cmd="ffmpeg", timeout=3.0),
+            subprocess.TimeoutExpired(cmd="ffmpeg", timeout=3.0),
+            None,
+        ]
+
+        _stop_ffmpeg(proc)
+
+        proc.terminate.assert_called_once()
+        proc.kill.assert_called_once()
+        self.assertEqual(proc.wait.call_count, 3)
+
+    def test_stops_after_terminate_without_escalating_to_kill(self):
+        """A process that responds to SIGTERM is not also killed."""
+        proc = MagicMock()
+        proc.poll.return_value = None
+        proc.wait.side_effect = [subprocess.TimeoutExpired(cmd="ffmpeg", timeout=3.0), None]
+
+        _stop_ffmpeg(proc)
+
+        proc.terminate.assert_called_once()
+        proc.kill.assert_not_called()
+
+    def test_swallows_oserror(self):
+        """A broken pipe (ffmpeg already gone) does not propagate."""
+        proc = MagicMock()
+        proc.poll.return_value = None
+        proc.stdin.write.side_effect = OSError("broken pipe")
+
+        _stop_ffmpeg(proc)  # Should not raise
 
 
 def _write_segments(directory, count, size=1024):

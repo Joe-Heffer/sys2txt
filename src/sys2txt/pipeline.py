@@ -122,43 +122,54 @@ def transcribe_live(
     segments = iter_audio_segments(source, segment_seconds, sample_rate=sample_rate, channels=channels, max_lag=max_lag)
     executor = _new_executor()
     warned_at = 0.0
+    future = None
     try:
-        with contextlib.closing(segments):
-            for segment in segments:
-                warned_at = _warn_lag(segment.lag, segment_seconds, warned_at)
-                future = executor.submit(transcribe_file_cues, segment.path, config)
-                error = None
-                try:
-                    transcript = future.result(timeout=timeout)
-                except FuturesTimeoutError:
-                    logger.warning("Segment %d transcription timed out, skipping", segment.index)
-                    transcript = Transcript()
-                    error = f"transcription timed out after {timeout:.0f}s"
-                    # The worker cannot be cancelled and keeps running, so the next segment
-                    # would queue behind it and time out without ever being transcribed.
-                    # Abandon the pool and give the next segment a worker of its own.
-                    executor.shutdown(wait=False)
-                    executor = _new_executor()
-                except Exception as e:
-                    logger.warning("Segment %d transcription failed: %s", segment.index, e)
-                    transcript = Transcript()
-                    error = f"transcription failed: {e}"
-                start = segment.index * segment_seconds
-                # The engine times each segment from zero, so shift its cues onto the
-                # timeline of the recording as a whole.
-                cues = tuple(cue.shifted(float(start)) for cue in transcript.cues)
-                yield TranscriptSegment(
-                    index=segment.index,
-                    text=render_transcript(transcript.cues, "txt", timestamps=config.timestamps),
-                    start=float(start),
-                    end=float(start + segment_seconds),
-                    cues=cues,
-                    error=error,
-                    lag=segment.lag,
-                    dropped=segment.dropped,
-                )
+        for segment in segments:
+            warned_at = _warn_lag(segment.lag, segment_seconds, warned_at)
+            future = executor.submit(transcribe_file_cues, segment.path, config)
+            error = None
+            try:
+                transcript = future.result(timeout=timeout)
+                future = None
+            except FuturesTimeoutError:
+                logger.warning("Segment %d transcription timed out, skipping", segment.index)
+                transcript = Transcript()
+                error = f"transcription timed out after {timeout:.0f}s"
+                # The worker cannot be cancelled and keeps running, so the next segment
+                # would queue behind it and time out without ever being transcribed.
+                # Abandon the pool and give the next segment a worker of its own.
+                executor.shutdown(wait=False)
+                executor = _new_executor()
+                future = None
+            except Exception as e:
+                logger.warning("Segment %d transcription failed: %s", segment.index, e)
+                transcript = Transcript()
+                error = f"transcription failed: {e}"
+                future = None
+            start = segment.index * segment_seconds
+            # The engine times each segment from zero, so shift its cues onto the
+            # timeline of the recording as a whole.
+            cues = tuple(cue.shifted(float(start)) for cue in transcript.cues)
+            yield TranscriptSegment(
+                index=segment.index,
+                text=render_transcript(transcript.cues, "txt", timestamps=config.timestamps),
+                start=float(start),
+                end=float(start + segment_seconds),
+                cues=cues,
+                error=error,
+                lag=segment.lag,
+                dropped=segment.dropped,
+            )
     finally:
+        # A worker can still be transcribing here if we were interrupted (e.g. Ctrl-C)
+        # while future.result() was blocked above. Give it a bounded chance to finish
+        # before closing the segment generator, whose cleanup removes the temporary
+        # directory the worker is reading from.
+        if future is not None and not future.done():
+            with contextlib.suppress(FuturesTimeoutError):
+                future.result(timeout=timeout)
         executor.shutdown(wait=False)
+        segments.close()
 
 
 def transcribe_once(
