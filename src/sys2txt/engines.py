@@ -18,11 +18,12 @@ nothing and an uninstalled backend is a ``False`` from :meth:`is_available`, not
 ``ImportError`` at import time.
 """
 
+import json
 import logging
 import os
-import re
 import shutil
 import subprocess
+import tempfile
 import threading
 from dataclasses import dataclass
 from pathlib import Path
@@ -288,58 +289,40 @@ def _resolve_whisper_cpp_model_path(model_path: Optional[str], model_size: str) 
     )
 
 
-def _timestamp_to_seconds(ts: str) -> float:
-    """Convert HH:MM:SS.mmm timestamp to seconds.
+def _parse_whisper_cpp_json(raw: str, language: Optional[str] = None) -> Transcript:
+    """Parse whisper-cli's ``-oj`` JSON output.
 
-    Args:
-        ts: Timestamp string like "00:01:23.456"
+    Each entry under ``transcription`` carries ``offsets.from``/``offsets.to`` in
+    milliseconds alongside the display-only ``timestamps.from``/``timestamps.to``
+    strings; the offsets are used since they need no format parsing of their own.
+    ``result.language`` is whisper.cpp's own detected/used language and is preferred
+    over the caller's requested language, which may have been ``None`` (auto-detect).
 
-    Returns:
-        Time in seconds as float
+    Raises:
+        RuntimeError: If ``raw`` is not the JSON object whisper-cli is documented to emit
     """
     try:
-        parts = ts.split(":")
-        hours = int(parts[0])
-        minutes = int(parts[1])
-        seconds = float(parts[2])
-        return hours * 3600 + minutes * 60 + seconds
-    except (IndexError, ValueError):
-        return 0.0
+        data = json.loads(raw)
+        segments = data["transcription"]
+    except (json.JSONDecodeError, KeyError, TypeError) as e:
+        raise RuntimeError(f"whisper-cli produced unparseable JSON output: {e}") from e
 
-
-def _parse_whisper_cpp_output(output: str, language: Optional[str] = None) -> Transcript:
-    """Parse whisper.cpp stdout format.
-
-    Whisper.cpp outputs lines like:
-    [00:00:00.000 --> 00:00:05.120]   Hello world
-
-    Args:
-        output: Raw stdout from whisper-cli
-        language: Language code the caller asked for, recorded on the transcript
-
-    Returns:
-        The transcript parsed out of the timestamped lines
-    """
     cues: List[Cue] = []
-    # Pattern: [HH:MM:SS.mmm --> HH:MM:SS.mmm] text
-    pattern = re.compile(r"\[(\d{2}:\d{2}:\d{2}\.\d{3})\s*-->\s*(\d{2}:\d{2}:\d{2}\.\d{3})\]\s*(.*)")
-
-    for line in output.splitlines():
-        match = pattern.match(line.strip())
-        if match:
-            start_str, end_str, text = match.groups()
-            text = text.strip()
-            if not text:
-                continue
-            cues.append(
-                Cue(
-                    start=_timestamp_to_seconds(start_str),
-                    end=_timestamp_to_seconds(end_str),
-                    text=text,
-                )
+    for segment in segments:
+        text = segment["text"].strip()
+        if not text:
+            continue
+        offsets = segment["offsets"]
+        cues.append(
+            Cue(
+                start=offsets["from"] / 1000.0,
+                end=offsets["to"] / 1000.0,
+                text=text,
             )
+        )
 
-    return Transcript(cues=tuple(cues), language=language)
+    detected_language = data.get("result", {}).get("language")
+    return Transcript(cues=tuple(cues), language=detected_language or language)
 
 
 class WhisperCppEngine:
@@ -366,7 +349,11 @@ class WhisperCppEngine:
         """No cached model to release."""
 
     def transcribe(self, path: str, config: TranscriptionConfig) -> Transcript:
-        """Transcribe by running whisper-cli and parsing its timestamped output.
+        """Transcribe by running whisper-cli and parsing its ``-oj`` JSON output.
+
+        The JSON is a structured interface (segment start/end/text as typed fields)
+        rather than a display format, so it survives changes to whisper-cli's
+        human-readable console output that broke #42.
 
         Raises:
             RuntimeError: If whisper-cli or its model cannot be found, or it fails
@@ -374,32 +361,40 @@ class WhisperCppEngine:
         binary = _resolve_whisper_cpp_binary(config.whisper_cpp_path)
         model = _resolve_whisper_cpp_model_path(config.model_path, config.model)
 
-        # Build command
-        cmd = [binary, "-m", model, "-f", path, "-np"]  # -np = no progress
+        with tempfile.TemporaryDirectory(prefix="sys2txt-whisper-cpp-") as tmpdir:
+            output_prefix = os.path.join(tmpdir, "output")
+            json_path = output_prefix + ".json"
 
-        # Device selection
-        if config.device == "cpu":
-            cmd.append("--no-gpu")
-        # For auto/vulkan/gpu/cuda, let whisper.cpp use GPU if available
+            cmd = [binary, "-m", model, "-f", path, "-np", "-oj", "-of", output_prefix]
 
-        if config.language:
-            cmd.extend(["-l", config.language])
+            # Device selection
+            if config.device == "cpu":
+                cmd.append("--no-gpu")
+            # For auto/vulkan/gpu/cuda, let whisper.cpp use GPU if available
 
-        logger.debug("Running whisper-cli: %s", " ".join(cmd))
-        try:
-            result = subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=WHISPER_CPP_TIMEOUT)
-        except subprocess.TimeoutExpired as e:
-            raise RuntimeError(
-                f"whisper-cli timed out after {WHISPER_CPP_TIMEOUT} seconds "
-                f"(possible GPU hang or malformed audio): {binary}"
-            ) from e
-        except subprocess.CalledProcessError as e:
-            stderr = e.stderr.strip() if e.stderr else "No error output"
-            raise RuntimeError(f"whisper-cli failed: {stderr}") from e
-        except FileNotFoundError as e:
-            raise RuntimeError(f"whisper-cli binary not found: {binary}") from e
+            if config.language:
+                cmd.extend(["-l", config.language])
 
-        return _parse_whisper_cpp_output(result.stdout, config.language)
+            logger.debug("Running whisper-cli: %s", " ".join(cmd))
+            try:
+                subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=WHISPER_CPP_TIMEOUT)
+            except subprocess.TimeoutExpired as e:
+                raise RuntimeError(
+                    f"whisper-cli timed out after {WHISPER_CPP_TIMEOUT} seconds "
+                    f"(possible GPU hang or malformed audio): {binary}"
+                ) from e
+            except subprocess.CalledProcessError as e:
+                stderr = e.stderr.strip() if e.stderr else "No error output"
+                raise RuntimeError(f"whisper-cli failed: {stderr}") from e
+            except FileNotFoundError as e:
+                raise RuntimeError(f"whisper-cli binary not found: {binary}") from e
+
+            try:
+                raw = Path(json_path).read_text()
+            except OSError as e:
+                raise RuntimeError(f"whisper-cli did not produce the expected JSON output at {json_path}") from e
+
+        return _parse_whisper_cpp_json(raw, config.language)
 
 
 ENGINES: Tuple[TranscriptionEngine, ...] = (

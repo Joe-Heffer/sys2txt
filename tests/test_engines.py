@@ -1,5 +1,6 @@
 """Tests for sys2txt.engines module."""
 
+import json
 import os
 import subprocess
 import sys
@@ -16,11 +17,10 @@ from sys2txt.engines import (
     TranscriptionConfig,
     TranscriptionEngine,
     WhisperCppEngine,
-    _parse_whisper_cpp_output,
+    _parse_whisper_cpp_json,
     _resolve_device,
     _resolve_whisper_cpp_binary,
     _resolve_whisper_cpp_model_path,
-    _timestamp_to_seconds,
     get_engine,
     unload_engines,
 )
@@ -447,62 +447,78 @@ class TestResolveWhisperCppModelPath(unittest.TestCase):
         self.assertIn("ggml-small.bin", str(cm.exception))
 
 
-class TestParseWhisperCppOutput(unittest.TestCase):
-    """Tests for the _parse_whisper_cpp_output() function."""
+def whisper_cpp_json(segments, language=None):
+    """Build a whisper-cli ``-oj`` JSON document as a string.
+
+    Args:
+        segments: Iterable of (text, start_seconds, end_seconds) tuples
+        language: Value to put under result.language, or omitted if None
+    """
+    transcription = []
+    for text, start, end in segments:
+        transcription.append(
+            {
+                "timestamps": {
+                    "from": f"{start:012.3f}",  # display-only, not parsed
+                    "to": f"{end:012.3f}",
+                },
+                "offsets": {"from": int(start * 1000), "to": int(end * 1000)},
+                "text": text,
+            }
+        )
+    doc = {"transcription": transcription}
+    if language is not None:
+        doc["result"] = {"language": language}
+    return json.dumps(doc)
+
+
+class TestParseWhisperCppJson(unittest.TestCase):
+    """Tests for the _parse_whisper_cpp_json() function."""
 
     def test_parse_keeps_cue_times(self):
-        """Test parsing whisper.cpp output into cues that keep their times."""
-        output = """[00:00:00.000 --> 00:00:05.120]   Hello world
-[00:00:05.120 --> 00:00:10.240]   This is a test"""
+        """Test parsing whisper.cpp JSON into cues that keep their times."""
+        raw = whisper_cpp_json([("Hello world", 0.0, 5.12), ("This is a test", 5.12, 10.24)])
 
-        result = _parse_whisper_cpp_output(output)
+        result = _parse_whisper_cpp_json(raw)
 
         self.assertEqual(
             result.cues,
             (Cue(0.0, 5.12, "Hello world"), Cue(5.12, 10.24, "This is a test")),
         )
 
-    def test_parse_records_the_language(self):
-        """Test that the requested language is recorded on the transcript."""
-        result = _parse_whisper_cpp_output("[00:00:00.000 --> 00:00:05.120]   Bonjour", "fr")
+    def test_parse_prefers_detected_language_over_the_requested_one(self):
+        """whisper.cpp's own result.language wins over the caller's requested language."""
+        raw = whisper_cpp_json([("Bonjour", 0.0, 5.12)], language="fr")
+
+        result = _parse_whisper_cpp_json(raw, "en")
+
+        self.assertEqual(result.language, "fr")
+
+    def test_parse_falls_back_to_requested_language_without_a_detected_one(self):
+        """Without a result.language field, the requested language is recorded instead."""
+        raw = whisper_cpp_json([("Bonjour", 0.0, 5.12)])
+
+        result = _parse_whisper_cpp_json(raw, "fr")
 
         self.assertEqual(result.language, "fr")
 
     def test_parse_empty_segments_ignored(self):
         """Test that empty segments are ignored."""
-        output = """[00:00:00.000 --> 00:00:05.120]   Hello
-[00:00:05.120 --> 00:00:10.240]
-[00:00:10.240 --> 00:00:15.000]   World"""
+        raw = whisper_cpp_json([("Hello", 0.0, 5.12), ("", 5.12, 10.24), ("World", 10.24, 15.0)])
 
-        result = _parse_whisper_cpp_output(output)
+        result = _parse_whisper_cpp_json(raw)
 
         self.assertEqual(result.text, "Hello World")
 
-    def test_parse_non_matching_lines_ignored(self):
-        """Test that non-matching lines are ignored."""
-        output = """whisper_init_from_file_no_state: loading model...
-[00:00:00.000 --> 00:00:05.120]   Hello world
-main: some debug output"""
+    def test_parse_malformed_json_raises(self):
+        """A body that isn't the documented JSON shape is a failure, not silent empty output."""
+        with self.assertRaises(RuntimeError):
+            _parse_whisper_cpp_json("not json")
 
-        result = _parse_whisper_cpp_output(output)
-
-        self.assertEqual(result.text, "Hello world")
-
-
-class TestTimestampToSeconds(unittest.TestCase):
-    """Tests for the _timestamp_to_seconds() function."""
-
-    def test_simple_seconds(self):
-        """Test simple seconds conversion."""
-        self.assertAlmostEqual(_timestamp_to_seconds("00:00:05.120"), 5.12, places=3)
-
-    def test_minutes_and_seconds(self):
-        """Test minutes and seconds conversion."""
-        self.assertAlmostEqual(_timestamp_to_seconds("00:02:30.500"), 150.5, places=3)
-
-    def test_hours_minutes_seconds(self):
-        """Test hours, minutes, and seconds conversion."""
-        self.assertAlmostEqual(_timestamp_to_seconds("01:30:45.750"), 5445.75, places=3)
+    def test_parse_missing_transcription_key_raises(self):
+        """Valid JSON that lacks the expected shape is still a failure."""
+        with self.assertRaises(RuntimeError):
+            _parse_whisper_cpp_json(json.dumps({"unexpected": []}))
 
 
 @patch("sys2txt.engines._resolve_whisper_cpp_binary", return_value="/path/to/whisper-cli")
@@ -515,7 +531,14 @@ class TestWhisperCppEngine(unittest.TestCase):
 
     @staticmethod
     def _stdout(mock_run, text="Hello world"):
-        mock_run.return_value = MagicMock(stdout=f"[00:00:00.000 --> 00:00:05.000]   {text}\n", returncode=0)
+        """Make the mocked whisper-cli write the JSON file its ``-of``/``-oj`` args request."""
+
+        def write_json(cmd, **kwargs):
+            output_prefix = cmd[cmd.index("-of") + 1]
+            Path(output_prefix + ".json").write_text(whisper_cpp_json([(text, 0.0, 5.0)]))
+            return MagicMock(returncode=0)
+
+        mock_run.side_effect = write_json
 
     @patch("subprocess.run")
     def test_transcribe_success(self, mock_run, _model_path, _binary):
@@ -539,6 +562,17 @@ class TestWhisperCppEngine(unittest.TestCase):
         self.assertIn("fr", call_args)
 
     @patch("subprocess.run")
+    def test_transcribe_requests_json_output(self, mock_run, _model_path, _binary):
+        """Test that whisper-cli is asked for -oj JSON rather than relying on stdout."""
+        self._stdout(mock_run)
+
+        self.engine.transcribe("/path/to/audio.wav", TranscriptionConfig())
+
+        call_args = mock_run.call_args[0][0]
+        self.assertIn("-oj", call_args)
+        self.assertIn("-of", call_args)
+
+    @patch("subprocess.run")
     def test_transcribe_cpu_device(self, mock_run, _model_path, _binary):
         """Test transcription with CPU device adds --no-gpu flag."""
         self._stdout(mock_run)
@@ -557,19 +591,12 @@ class TestWhisperCppEngine(unittest.TestCase):
         self.assertNotIn("--no-gpu", mock_run.call_args[0][0])
 
     @patch("subprocess.run")
-    def test_transcribe_no_timestamps_does_not_pass_no_timestamps_flag(self, mock_run, _model_path, _binary):
-        """Regression test for #42: --no-timestamps must never be passed to whisper-cli.
+    def test_transcribe_missing_json_output_raises(self, mock_run, _model_path, _binary):
+        """If whisper-cli exits successfully but never writes the JSON file, that's a failure."""
+        mock_run.return_value = MagicMock(returncode=0)
 
-        whisper-cli only emits bracketed timestamp lines when timestamps are enabled;
-        with --no-timestamps its plain-text output doesn't match the parser's regex,
-        so the transcript would silently come back empty.
-        """
-        self._stdout(mock_run)
-
-        result = self.engine.transcribe("/path/to/audio.wav", TranscriptionConfig())
-
-        self.assertNotIn("--no-timestamps", mock_run.call_args[0][0])
-        self.assertEqual(result.text, "Hello world")
+        with self.assertRaises(RuntimeError):
+            self.engine.transcribe("/path/to/audio.wav", TranscriptionConfig())
 
     @patch("subprocess.run")
     def test_transcribe_passes_the_configured_paths(self, mock_run, mock_model_path, mock_binary):
