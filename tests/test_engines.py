@@ -335,7 +335,7 @@ class TestModelCache(unittest.TestCase):
 
         def worker():
             try:
-                barrier.wait(timeout=5)
+                barrier.wait()
                 self.engine.transcribe("/path/to/audio.wav", TranscriptionConfig(device="cpu"))
             except Exception as e:
                 errors.append(e)
@@ -344,8 +344,11 @@ class TestModelCache(unittest.TestCase):
         for thread in threads:
             thread.start()
         for thread in threads:
-            thread.join(timeout=10)
+            thread.join(timeout=30)
 
+        # A join() timeout alone can't fail the test on its own, so check explicitly that
+        # nothing is still running -- a genuine deadlock should fail loudly, not pass quietly.
+        self.assertFalse(any(thread.is_alive() for thread in threads))
         self.assertEqual(errors, [])
         mock_model_class.assert_called_once_with("small", device="cpu", compute_type="int8")
 
@@ -608,7 +611,7 @@ class TestWhisperCppEngine(unittest.TestCase):
 
         mock_run.side_effect = write_json
 
-    @patch("subprocess.run")
+    @patch("sys2txt.engines.subprocess.run")
     def test_transcribe_success(self, mock_run, _model_path, _binary):
         """Test successful transcription."""
         self._stdout(mock_run)
@@ -618,7 +621,7 @@ class TestWhisperCppEngine(unittest.TestCase):
         self.assertEqual(result.cues, (Cue(0.0, 5.0, "Hello world"),))
         mock_run.assert_called_once()
 
-    @patch("subprocess.run")
+    @patch("sys2txt.engines.subprocess.run")
     def test_transcribe_with_language(self, mock_run, _model_path, _binary):
         """Test transcription with language specified."""
         self._stdout(mock_run, "Bonjour")
@@ -629,7 +632,7 @@ class TestWhisperCppEngine(unittest.TestCase):
         self.assertIn("-l", call_args)
         self.assertIn("fr", call_args)
 
-    @patch("subprocess.run")
+    @patch("sys2txt.engines.subprocess.run")
     def test_transcribe_requests_json_output(self, mock_run, _model_path, _binary):
         """Test that whisper-cli is asked for -oj JSON rather than relying on stdout."""
         self._stdout(mock_run)
@@ -640,7 +643,7 @@ class TestWhisperCppEngine(unittest.TestCase):
         self.assertIn("-oj", call_args)
         self.assertIn("-of", call_args)
 
-    @patch("subprocess.run")
+    @patch("sys2txt.engines.subprocess.run")
     def test_transcribe_cpu_device(self, mock_run, _model_path, _binary):
         """Test transcription with CPU device adds --no-gpu flag."""
         self._stdout(mock_run)
@@ -649,7 +652,7 @@ class TestWhisperCppEngine(unittest.TestCase):
 
         self.assertIn("--no-gpu", mock_run.call_args[0][0])
 
-    @patch("subprocess.run")
+    @patch("sys2txt.engines.subprocess.run")
     def test_transcribe_vulkan_device(self, mock_run, _model_path, _binary):
         """Test transcription with Vulkan device does not add --no-gpu."""
         self._stdout(mock_run)
@@ -658,7 +661,7 @@ class TestWhisperCppEngine(unittest.TestCase):
 
         self.assertNotIn("--no-gpu", mock_run.call_args[0][0])
 
-    @patch("subprocess.run")
+    @patch("sys2txt.engines.subprocess.run")
     def test_transcribe_missing_json_output_raises(self, mock_run, _model_path, _binary):
         """If whisper-cli exits successfully but never writes the JSON file, that's a failure."""
         mock_run.return_value = MagicMock(returncode=0)
@@ -666,7 +669,7 @@ class TestWhisperCppEngine(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             self.engine.transcribe("/path/to/audio.wav", TranscriptionConfig())
 
-    @patch("subprocess.run")
+    @patch("sys2txt.engines.subprocess.run")
     def test_transcribe_passes_the_configured_paths(self, mock_run, mock_model_path, mock_binary):
         """The engine resolves the binary and model from the config, not from arguments."""
         self._stdout(mock_run)
@@ -677,7 +680,7 @@ class TestWhisperCppEngine(unittest.TestCase):
         mock_binary.assert_called_once_with("/custom/whisper-cli")
         mock_model_path.assert_called_once_with("/custom/model.bin", "small", download=True)
 
-    @patch("subprocess.run")
+    @patch("sys2txt.engines.subprocess.run")
     def test_transcribe_failure(self, mock_run, _model_path, _binary):
         """Test transcription failure raises RuntimeError."""
         mock_run.side_effect = subprocess.CalledProcessError(1, "whisper-cli", stderr="Error: model not found")
@@ -687,7 +690,7 @@ class TestWhisperCppEngine(unittest.TestCase):
 
         self.assertIn("whisper-cli failed", str(cm.exception))
 
-    @patch("subprocess.run")
+    @patch("sys2txt.engines.subprocess.run")
     def test_transcribe_timeout_raises_runtime_error(self, mock_run, _model_path, _binary):
         """Test that a hung whisper-cli process raises RuntimeError after timeout."""
         mock_run.side_effect = subprocess.TimeoutExpired(cmd="whisper-cli", timeout=300)
