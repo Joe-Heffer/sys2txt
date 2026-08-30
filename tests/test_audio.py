@@ -11,6 +11,15 @@ from unittest.mock import MagicMock, patch
 from sys2txt.audio import AudioSegment, iter_audio_segments, record_once
 
 
+def _mock_proc(returncode: int = 0, stderr_lines: list = ()) -> MagicMock:
+    """Build a mock ffmpeg process with a real (empty by default) stderr stream."""
+    mock_proc = MagicMock()
+    mock_proc.wait.return_value = None
+    mock_proc.returncode = returncode
+    mock_proc.stderr = iter(line.encode("utf-8") for line in stderr_lines)
+    return mock_proc
+
+
 class TestRecordOnce(unittest.TestCase):
     """Tests for the record_once() function."""
 
@@ -19,8 +28,7 @@ class TestRecordOnce(unittest.TestCase):
     def test_record_once_with_duration(self, mock_popen, mock_which):
         """Test record_once() with fixed duration."""
         mock_which.return_value = "/usr/bin/ffmpeg"
-        mock_proc = MagicMock()
-        mock_proc.wait.return_value = None
+        mock_proc = _mock_proc()
         mock_popen.return_value = mock_proc
 
         record_once("test.monitor", "/tmp/test.wav", 30)
@@ -40,8 +48,7 @@ class TestRecordOnce(unittest.TestCase):
     def test_record_once_without_duration(self, mock_popen, mock_which):
         """Test record_once() without duration (Ctrl-C to stop)."""
         mock_which.return_value = "/usr/bin/ffmpeg"
-        mock_proc = MagicMock()
-        mock_proc.wait.return_value = None
+        mock_proc = _mock_proc()
         mock_popen.return_value = mock_proc
 
         record_once("test.monitor", "/tmp/test.wav")
@@ -55,7 +62,7 @@ class TestRecordOnce(unittest.TestCase):
     def test_record_once_uses_default_sample_rate_and_channels(self, mock_popen, mock_which):
         """Sample rate and channels default to the Whisper-compatible constants."""
         mock_which.return_value = "/usr/bin/ffmpeg"
-        mock_popen.return_value = MagicMock()
+        mock_popen.return_value = _mock_proc()
 
         record_once("test.monitor", "/tmp/test.wav")
 
@@ -68,7 +75,7 @@ class TestRecordOnce(unittest.TestCase):
     def test_record_once_keyboard_interrupt(self, mock_popen, mock_which):
         """Test record_once() handles KeyboardInterrupt gracefully."""
         mock_which.return_value = "/usr/bin/ffmpeg"
-        mock_proc = MagicMock()
+        mock_proc = _mock_proc()
         mock_proc.wait.side_effect = [KeyboardInterrupt(), None]
         mock_popen.return_value = mock_proc
 
@@ -76,6 +83,43 @@ class TestRecordOnce(unittest.TestCase):
 
         mock_proc.send_signal.assert_called_once_with(signal.SIGINT)
         self.assertEqual(mock_proc.wait.call_count, 2)
+
+    @patch("sys2txt.audio.which")
+    @patch("sys2txt.audio.subprocess.Popen")
+    def test_record_once_keyboard_interrupt_nonzero_exit_does_not_raise(self, mock_popen, mock_which):
+        """A non-zero exit caused by our own SIGINT is not a genuine failure."""
+        mock_which.return_value = "/usr/bin/ffmpeg"
+        mock_proc = _mock_proc(returncode=255)
+        mock_proc.wait.side_effect = [KeyboardInterrupt(), None]
+        mock_popen.return_value = mock_proc
+
+        record_once("test.monitor", "/tmp/test.wav")
+
+    @patch("sys2txt.audio.which")
+    @patch("sys2txt.audio.subprocess.Popen")
+    def test_record_once_raises_on_ffmpeg_failure(self, mock_popen, mock_which):
+        """A non-zero, non-interrupted exit raises with ffmpeg's stderr."""
+        mock_which.return_value = "/usr/bin/ffmpeg"
+        mock_proc = _mock_proc(returncode=1, stderr_lines=["Failed to open source"])
+        mock_popen.return_value = mock_proc
+
+        with self.assertRaises(RuntimeError) as ctx:
+            record_once("test.monitor", "/tmp/test.wav")
+
+        self.assertIn("Failed to open source", str(ctx.exception))
+
+    @patch("sys2txt.audio.which")
+    @patch("sys2txt.audio.subprocess.Popen")
+    def test_record_once_raises_on_ffmpeg_failure_without_stderr(self, mock_popen, mock_which):
+        """A non-zero exit with no stderr output still raises, naming the exit code."""
+        mock_which.return_value = "/usr/bin/ffmpeg"
+        mock_proc = _mock_proc(returncode=1)
+        mock_popen.return_value = mock_proc
+
+        with self.assertRaises(RuntimeError) as ctx:
+            record_once("test.monitor", "/tmp/test.wav")
+
+        self.assertIn("1", str(ctx.exception))
 
 
 def _write_segments(directory, count, size=1024):

@@ -44,12 +44,15 @@ class AudioSegment:
     dropped: int = 0
 
 
-def _drain_stderr(proc: subprocess.Popen) -> None:
+def _drain_stderr(proc: subprocess.Popen, lines: Optional[List[str]] = None) -> None:
     """Read ffmpeg's stderr to completion, logging each line.
 
     ffmpeg's stderr is a pipe with a finite OS buffer; if nothing reads it, ffmpeg blocks on
     write once that buffer fills and the process wedges without exiting. This runs in its own
     thread so the pipe is always drained, and stops when it hits EOF (ffmpeg has exited).
+
+    ``lines``, if given, additionally collects each line so a caller can report ffmpeg's own
+    diagnostic on failure rather than just discarding it into the log.
     """
     if proc.stderr is None:
         return
@@ -57,6 +60,8 @@ def _drain_stderr(proc: subprocess.Popen) -> None:
         text = line.decode("utf-8", errors="replace").rstrip()
         if text:
             logger.warning("ffmpeg: %s", text)
+            if lines is not None:
+                lines.append(text)
 
 
 def _stop_ffmpeg(proc: subprocess.Popen) -> None:
@@ -93,6 +98,10 @@ def record_once(
         duration: Optional recording duration in seconds. If None, records until interrupted.
         sample_rate: Sample rate in Hz
         channels: Number of audio channels (1 for mono, 2 for stereo)
+
+    Raises:
+        RuntimeError: ffmpeg exited with a non-zero status for a reason other than the
+            interrupt this function sent it to stop recording, naming ffmpeg's own diagnostic.
     """
     ffmpeg = which("ffmpeg")
     args = [
@@ -122,15 +131,26 @@ def record_once(
     else:
         logger.info("Recording for %d seconds...", duration)
 
-    proc = subprocess.Popen(args)
+    stderr_lines: List[str] = []
+    proc = subprocess.Popen(args, stderr=subprocess.PIPE)
+    stderr_thread = threading.Thread(target=_drain_stderr, args=(proc, stderr_lines), daemon=True)
+    stderr_thread.start()
+    interrupted = False
     try:
         proc.wait()
     except KeyboardInterrupt:
+        interrupted = True
         try:
             proc.send_signal(signal.SIGINT)
         except OSError:
             pass
         proc.wait()
+    stderr_thread.join()
+
+    if not interrupted and proc.returncode != 0:
+        detail = "\n".join(stderr_lines) or f"ffmpeg exited with code {proc.returncode}"
+        raise RuntimeError(f"ffmpeg failed while recording: {detail}")
+
     logger.info("Recording finished.")
 
 
