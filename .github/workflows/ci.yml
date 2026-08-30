@@ -17,7 +17,7 @@ on:
       - ".github/workflows/ci.yml"
 
 permissions:
-  contents: read
+  contents: write
 jobs:
   test:
     runs-on: ubuntu-24.04
@@ -66,3 +66,15 @@ jobs:
         with:
           name: coverage-report
           path: coverage.xml
+
+      - name: Generate coverage badge
+        if: github.event_name == 'push' && matrix.python-version == '3.13'
+        run: |
+          genbadge coverage -i coverage.xml -o badge.svg
+
+      - name: Commit coverage badge
+        if: github.event_name == 'push' && matrix.python-version == '3.13'
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: "chore: update coverage badge"
+          file_pattern: badge.svg

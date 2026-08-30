@@ -177,6 +177,7 @@ Pipeline includes:
 - Code formatting check with `ruff format --check`
 - Linting with `ruff check`
 - Unit tests with `pytest` and coverage reporting (`pytest-cov`); coverage.xml is uploaded as a build artifact on the Python 3.13 job
+- On pushes to `main`, `genbadge` regenerates `badge.svg` (the README coverage badge) from `coverage.xml` and `stefanzweifel/git-auto-commit-action` commits it back if it changed
 
 ### Publishing Workflows
 
