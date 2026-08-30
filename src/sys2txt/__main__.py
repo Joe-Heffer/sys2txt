@@ -81,9 +81,9 @@ def _resolve_output_path(output_arg: Optional[str], output_format: str = DEFAULT
     A generated name takes the extension of the output format; an explicit path is used
     as given, on the assumption the caller named it deliberately.
     """
-    output_dir = ensure_output_dir()
     if output_arg:
         return output_arg
+    output_dir = ensure_output_dir()
     return os.path.join(output_dir, get_timestamp_filename(FORMAT_EXTENSIONS[output_format]))
 
 
