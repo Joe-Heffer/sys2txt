@@ -56,6 +56,10 @@ pip install sys2txt           # no Python engine (use whisper.cpp instead)
 
 The tool auto-selects `faster-whisper` when available, falls back to `openai-whisper`, then falls back to `whisper.cpp`.
 
+**AMD GPU (or other non-CUDA GPU)?** `faster-whisper`/`openai-whisper` only accelerate on CPU or
+NVIDIA CUDA — skip the extras above (`pip install sys2txt` with no extras is enough) and use the
+`whisper.cpp` + Vulkan backend instead; see [AMD GPU (Vulkan)](#amd-gpu-vulkan) below.
+
 ## Usage
 
 ### Quick start
@@ -287,7 +291,7 @@ The full public API is `AudioSegment`, `Cue`, `OUTPUT_FORMATS`, `Transcript`, `T
 `record_once`, `render_transcript`, `transcribe_file`, `transcribe_file_cues`, `transcribe_live`,
 `transcribe_once` and `transcribe_once_cues`. The package ships type hints (`py.typed`).
 
-## Whisper.cpp with Vulkan GPU
+## AMD GPU (Vulkan)
 
 For AMD GPUs (or other GPUs not supported by CUDA), you can use whisper.cpp with Vulkan acceleration for ~8x speedup over CPU.
 
@@ -332,6 +336,9 @@ sys2txt once --engine cpp --model small
 
 # Force CPU-only (disable GPU)
 sys2txt once --engine cpp --model small --device cpu
+
+# Live mode on an AMD GPU with Vulkan
+sys2txt live --engine cpp --device vulkan --model small.en
 ```
 
 ## Tips and troubleshooting
@@ -342,7 +349,7 @@ sys2txt once --engine cpp --model small --device cpu
 - For better performance on CPU, use faster-whisper with model `base` or `small`. For the best accuracy, use `medium` or `large-v2` (these are heavier).
 - GPU acceleration for faster-whisper requires a compatible ctranslate2 CUDA wheel. Set `SYS2TXT_DEVICE=cuda` or use `--device cuda` to enable it.
 - `SYS2TXT_DEVICE`/`--device` apply to openai-whisper too, which needs a CUDA-capable PyTorch build for `cuda`.
-- For AMD GPUs, use whisper.cpp with Vulkan support (see above).
+- For AMD GPUs, use whisper.cpp with Vulkan support (see [AMD GPU (Vulkan)](#amd-gpu-vulkan)).
 
 ## Contributing
 
