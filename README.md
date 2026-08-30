@@ -2,6 +2,7 @@
 
 [![CI](https://github.com/Joe-Heffer/sys2txt/actions/workflows/ci.yml/badge.svg)](https://github.com/Joe-Heffer/sys2txt/actions/workflows/ci.yml)
 [![PyPI version](https://badge.fury.io/py/sys2txt.svg)](https://badge.fury.io/py/sys2txt)
+![Coverage](badge.svg)
 
 Record system audio and automatically transcribe to text using ✨AI✨.
 
