@@ -2,8 +2,14 @@
 
 import os
 
-WHISPER_MODEL = os.getenv("WHISPER_MODEL", "small.en")
-"Default Whisper model"
+DEFAULT_WHISPER_MODEL = "small.en"
+"Fallback Whisper model when SYS2TXT_WHISPER_MODEL is not set"
+
+
+def get_default_whisper_model() -> str:
+    """Return the default Whisper model, read fresh from SYS2TXT_WHISPER_MODEL each call."""
+    return os.getenv("SYS2TXT_WHISPER_MODEL", DEFAULT_WHISPER_MODEL)
+
 
 SAMPLE_RATE = 16000
 "Capture sample rate in Hz. Whisper models expect 16 kHz audio."

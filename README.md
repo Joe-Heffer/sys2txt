@@ -118,8 +118,8 @@ sys2txt live --model small.en --segment-seconds 8
 - `SYS2TXT_DEVICE` - Default for `--device` (`cpu`, `cuda`, `vulkan`, `gpu`)
 - `SYS2TXT_WHISPER_CPP` - Path to the `whisper-cli` binary, used when `--whisper-cpp-path` is omitted
 - `SYS2TXT_WHISPER_CPP_MODELS` - Directory containing whisper.cpp model files, used when `--model-path` is omitted
-- `WHISPER_MODEL` - Default for `--model` (falls back to `small.en`)
-- `LOG_LEVEL` - Overrides `--verbose`/`--quiet` with an explicit logging level (e.g. `DEBUG`, `INFO`, `WARNING`)
+- `SYS2TXT_WHISPER_MODEL` - Default for `--model` (falls back to `small.en`)
+- `SYS2TXT_LOG_LEVEL` - Used when neither `--verbose` nor `--quiet` is given, otherwise the flag wins (e.g. `DEBUG`, `INFO`, `WARNING`)
 
 ### Keeping up with real time
 

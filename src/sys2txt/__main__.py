@@ -3,6 +3,7 @@
 
 import argparse
 import contextlib
+import copy
 import logging
 import os
 import sys
@@ -14,8 +15,9 @@ from . import __version__
 from .constants import (
     DEFAULT_OUTPUT_FORMAT,
     DEFAULT_SEGMENT_SECONDS,
+    DEFAULT_WHISPER_MODEL,
     MAX_CONSECUTIVE_SEGMENT_FAILURES,
-    WHISPER_MODEL,
+    get_default_whisper_model,
 )
 from .engines import ENGINE_NAMES
 from .formats import FORMAT_EXTENSIONS, OUTPUT_FORMATS, TIMED_FORMATS, get_formatter, render_transcript
@@ -32,7 +34,7 @@ class Options:
 
     mode: str
     source: Optional[str] = None
-    model: str = WHISPER_MODEL
+    model: str = DEFAULT_WHISPER_MODEL
     engine: str = "auto"
     device: str = "auto"
     language: Optional[str] = None
@@ -225,21 +227,29 @@ class _ColorFormatter(logging.Formatter):
 
     def format(self, record):
         color = self.COLORS.get(record.levelno, "")
+        record = copy.copy(record)
         record.levelname = f"{color}{record.levelname}{self.RESET}"
         return super().format(record)
 
 
+_LEVEL_NAMES = {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}
+
+
 def _configure_logging(verbose: bool, quiet: bool) -> None:
-    """Configure logging based on CLI flags and LOG_LEVEL environment variable."""
-    level_name = os.environ.get("LOG_LEVEL", "").upper()
-    if level_name and hasattr(logging, level_name):
-        level = getattr(logging, level_name)
-    elif quiet:
+    """Configure logging based on CLI flags, falling back to SYS2TXT_LOG_LEVEL, then a default.
+
+    Precedence: explicit --verbose/--quiet > SYS2TXT_LOG_LEVEL > default (WARNING).
+    """
+    if quiet:
         level = logging.WARNING
     elif verbose:
         level = logging.DEBUG
     else:
-        level = logging.WARNING
+        level_name = os.environ.get("SYS2TXT_LOG_LEVEL", "").upper()
+        if level_name in _LEVEL_NAMES:
+            level = getattr(logging, level_name)
+        else:
+            level = logging.WARNING
 
     handler = logging.StreamHandler(sys.stderr)
     fmt = "%(levelname)s: %(message)s"
@@ -250,6 +260,8 @@ def _configure_logging(verbose: bool, quiet: bool) -> None:
 
     root = logging.getLogger()
     root.setLevel(level)
+    for existing in list(root.handlers):
+        root.removeHandler(existing)
     root.addHandler(handler)
 
 
@@ -265,11 +277,12 @@ def _build_parser() -> argparse.ArgumentParser:
     common.add_argument(
         "--source", help="PulseAudio source name (e.g., <sink>.monitor). Defaults to auto.", default=None
     )
+    default_model = get_default_whisper_model()
     common.add_argument(
         "--model",
         dest="model_size",
-        default=WHISPER_MODEL,
-        help=f"Whisper model size (default: {WHISPER_MODEL})",
+        default=default_model,
+        help=f"Whisper model size (default: {default_model})",
     )
     common.add_argument(
         "--engine",
