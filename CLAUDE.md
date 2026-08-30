@@ -160,8 +160,8 @@ The codebase is organized into focused modules by functionality:
 - `SYS2TXT_DEVICE`: Device selection for faster-whisper (`cpu`, `cuda`)
 - `SYS2TXT_WHISPER_CPP`: Path to whisper-cli binary
 - `SYS2TXT_WHISPER_CPP_MODELS`: Directory containing whisper.cpp model files (e.g., `ggml-small.bin`)
-- `WHISPER_MODEL`: Default for `--model` (falls back to `small.en`)
-- `LOG_LEVEL`: Overrides `--verbose`/`--quiet` with an explicit logging level (e.g. `DEBUG`, `INFO`, `WARNING`)
+- `SYS2TXT_WHISPER_MODEL`: Default for `--model` (falls back to `small.en`)
+- `SYS2TXT_LOG_LEVEL`: Used when neither `--verbose` nor `--quiet` is given, otherwise the flag wins (e.g. `DEBUG`, `INFO`, `WARNING`)
 
 ## Continuous Integration & Deployment
 

@@ -962,21 +962,44 @@ class TestConfigureLogging(unittest.TestCase):
         root.level = self._original_level
 
     def test_verbose_sets_debug(self):
-        _configure_logging(verbose=True, quiet=False)
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("SYS2TXT_LOG_LEVEL", None)
+            _configure_logging(verbose=True, quiet=False)
         self.assertEqual(logging.getLogger().level, logging.DEBUG)
 
     def test_quiet_sets_warning(self):
-        _configure_logging(verbose=False, quiet=True)
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("SYS2TXT_LOG_LEVEL", None)
+            _configure_logging(verbose=False, quiet=True)
         self.assertEqual(logging.getLogger().level, logging.WARNING)
 
     def test_default_sets_warning(self):
-        _configure_logging(verbose=False, quiet=False)
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("SYS2TXT_LOG_LEVEL", None)
+            _configure_logging(verbose=False, quiet=False)
         self.assertEqual(logging.getLogger().level, logging.WARNING)
 
-    def test_log_level_env_overrides_flags(self):
-        with patch.dict(os.environ, {"LOG_LEVEL": "ERROR"}):
+    def test_explicit_flags_override_log_level_env(self):
+        with patch.dict(os.environ, {"SYS2TXT_LOG_LEVEL": "ERROR"}):
             _configure_logging(verbose=True, quiet=False)
+        self.assertEqual(logging.getLogger().level, logging.DEBUG)
+
+    def test_log_level_env_used_when_no_flags(self):
+        with patch.dict(os.environ, {"SYS2TXT_LOG_LEVEL": "ERROR"}):
+            _configure_logging(verbose=False, quiet=False)
         self.assertEqual(logging.getLogger().level, logging.ERROR)
+
+    def test_log_level_env_invalid_value_falls_back_to_default(self):
+        with patch.dict(os.environ, {"SYS2TXT_LOG_LEVEL": "RAISEEXCEPTIONS"}):
+            _configure_logging(verbose=False, quiet=False)
+        self.assertEqual(logging.getLogger().level, logging.WARNING)
+
+    def test_configure_logging_does_not_duplicate_handlers(self):
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("SYS2TXT_LOG_LEVEL", None)
+            _configure_logging(verbose=False, quiet=False)
+            _configure_logging(verbose=False, quiet=False)
+        self.assertEqual(len(logging.getLogger().handlers), 1)
 
 
 if __name__ == "__main__":
