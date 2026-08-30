@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.6.1](https://github.com/Joe-Heffer/sys2txt/compare/v0.6.0...v0.6.1) (2026-08-30)
+
+
+### Bug Fixes
+
+* bound ffmpeg shutdown and stop live transcription racing temp-dir cleanup ([#88](https://github.com/Joe-Heffer/sys2txt/issues/88)) ([0d06b07](https://github.com/Joe-Heffer/sys2txt/commit/0d06b07592a1dc295a8cd7ebf456f15361bc9f0f)), closes [#55](https://github.com/Joe-Heffer/sys2txt/issues/55)
+* correct logging config precedence, record mutation, and unprefixed env vars ([#59](https://github.com/Joe-Heffer/sys2txt/issues/59)) ([#94](https://github.com/Joe-Heffer/sys2txt/issues/94)) ([be6595b](https://github.com/Joe-Heffer/sys2txt/commit/be6595b2963e69f2e0f43d011abf964da0611bda))
+* drain ffmpeg's stderr in live mode to prevent deadlock ([#85](https://github.com/Joe-Heffer/sys2txt/issues/85)) ([d6190f4](https://github.com/Joe-Heffer/sys2txt/commit/d6190f4efda9f65c12c4de3720cb80e8ce370751)), closes [#52](https://github.com/Joe-Heffer/sys2txt/issues/52)
+* drop dead RuntimeError clause and avoid double pactl call in pulse.py ([#96](https://github.com/Joe-Heffer/sys2txt/issues/96)) ([86156e3](https://github.com/Joe-Heffer/sys2txt/commit/86156e31a50829a92af56db31f79ade9d042fd2f)), closes [#61](https://github.com/Joe-Heffer/sys2txt/issues/61)
+* gate publishing on tests and stop dropping releases via path filters ([#92](https://github.com/Joe-Heffer/sys2txt/issues/92)) ([9a65243](https://github.com/Joe-Heffer/sys2txt/commit/9a652433a14c6d20767869917eaabf1d6fcabe26)), closes [#57](https://github.com/Joe-Heffer/sys2txt/issues/57)
+* only create output/ directory when it will actually be used ([#95](https://github.com/Joe-Heffer/sys2txt/issues/95)) ([6ef7a1e](https://github.com/Joe-Heffer/sys2txt/commit/6ef7a1ee2a4929c81be74ad42c7caf379d9acb4d)), closes [#60](https://github.com/Joe-Heffer/sys2txt/issues/60)
+* raise on ffmpeg failure in record_once instead of discarding it ([#87](https://github.com/Joe-Heffer/sys2txt/issues/87)) ([08e1cd0](https://github.com/Joe-Heffer/sys2txt/commit/08e1cd08480c18d882669b6e972c3cc32cfe84fe)), closes [#54](https://github.com/Joe-Heffer/sys2txt/issues/54)
+* validate --output path is writable before recording or transcription ([#56](https://github.com/Joe-Heffer/sys2txt/issues/56)) ([#90](https://github.com/Joe-Heffer/sys2txt/issues/90)) ([e3b46b2](https://github.com/Joe-Heffer/sys2txt/commit/e3b46b20a40595b367e2445261bdad093b270100))
+* warn on --device/--engine combinations that silently fall back to CPU ([#58](https://github.com/Joe-Heffer/sys2txt/issues/58)) ([#93](https://github.com/Joe-Heffer/sys2txt/issues/93)) ([0d37163](https://github.com/Joe-Heffer/sys2txt/commit/0d37163902a34a589a6ff380b394c42a1dd4461c))
+
 ## [0.6.0](https://github.com/Joe-Heffer/sys2txt/compare/v0.5.4...v0.6.0) (2026-08-30)
 
 
