@@ -84,8 +84,10 @@ def live_segments(*items, segment_seconds=8, indices=None, lags=(), dropped=()):
 
 class TestResolveOutputPath(unittest.TestCase):
     def test_explicit_arg_returned_as_is(self):
-        result = _resolve_output_path("/tmp/my_output.txt")
+        with patch("sys2txt.__main__.ensure_output_dir") as mock_ensure_output_dir:
+            result = _resolve_output_path("/tmp/my_output.txt")
         self.assertEqual(result, "/tmp/my_output.txt")
+        mock_ensure_output_dir.assert_not_called()
 
     def test_none_generates_timestamped_path(self):
         with (
