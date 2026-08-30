@@ -13,7 +13,7 @@ jobs:
   release-please:
     runs-on: ubuntu-24.04
     steps:
-      - uses: googleapis/release-please-action@v4
+      - uses: googleapis/release-please-action@v5
         with:
           # A PAT is required (not the default GITHUB_TOKEN): GitHub does not
           # trigger downstream workflows (e.g. publish-to-pypi's tag push
