@@ -20,7 +20,7 @@ sys2txt = "sys2txt.__main__:main"
 faster = ["faster-whisper>=1.0.0"]
 openai = ["openai-whisper>=20231117"]
 all = ["faster-whisper>=1.0.0", "openai-whisper>=20231117"]
-dev = ["ruff>=0.8.0"]
+dev = ["ruff>=0.8.0", "pytest>=8.0.0", "pytest-cov>=5.0.0"]
 
 [tool.setuptools.packages.find]
 where = ["src"]
@@ -35,3 +35,15 @@ target-version = "py39"
 [tool.ruff.lint]
 select = ["E", "F", "I", "W"]
 ignore = []
+
+[tool.coverage.run]
+source = ["sys2txt"]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = false
+exclude_lines = [
+    "pragma: no cover",
+    "raise NotImplementedError",
+    "if TYPE_CHECKING:",
+]

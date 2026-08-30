@@ -176,7 +176,7 @@ Pipeline includes:
 - Testing on Python 3.10, 3.11, 3.12, 3.13, and 3.14
 - Code formatting check with `ruff format --check`
 - Linting with `ruff check`
-- Unit tests with `python -m unittest`
+- Unit tests with `pytest` and coverage reporting (`pytest-cov`); coverage.xml is uploaded as a build artifact on the Python 3.13 job
 
 ### Publishing Workflows
 
@@ -222,6 +222,9 @@ python -m unittest tests/test_audio.py
 
 # Run a specific test class
 python -m unittest tests.test_audio.TestRecordOnce
+
+# Run tests with a coverage report
+pytest --cov=sys2txt --cov-report=term-missing
 
 # Format code with ruff
 ruff format src/
