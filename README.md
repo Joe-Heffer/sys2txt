@@ -27,7 +27,7 @@ failing part-way through one of them.
 
 - Modern linux distribution with PulseAudio or PipeWire (default on modern Ubuntu)
 - ffmpeg
-- Python 3.10+ (recommended)
+- Python 3.10+
 
 ### Install
 
@@ -88,14 +88,17 @@ sys2txt live --model small.en --segment-seconds 8
 
 - `--source <pulse_source_name>` - Explicit PulseAudio/PipeWire source (e.g., alsa_output.pci-0000_00_1f.3.analog-stereo.monitor)
 - `--list-sources` - List available Pulse sources and exit
-- `--model <size>` - tiny|base|small|medium|large-v2 (default: small)
+- `--model <size>` - any Whisper model size accepted by the engine, e.g. tiny|base|small|medium|large-v2,
+  optionally suffixed `.en` for an English-only model (default: small.en). `--language` auto-detection
+  is meaningless with an `.en` model, since it only ever transcribes English
 - `--engine <auto|faster|whisper|cpp>` - Force a specific engine (default: auto)
 - `--device <auto|cpu|vulkan|gpu|cuda>` - Device for transcription (default: auto). `cuda` applies to the
   Python engines (`faster`, `whisper`), `vulkan`/`gpu` to `cpp`; `auto` reads `SYS2TXT_DEVICE`, else CPU
 - `--language <code>` - Force language code (e.g., en). Omit to auto-detect
 - `--format <txt|srt|vtt|json|tsv>` - Transcript format (default: txt). See [Output formats](#output-formats)
 - `--output <path>` - Write the transcript to a file. Without it, one is written to
-  `./output/<timestamp>.<ext>`. In live mode `txt` appends to an existing file; the timed formats
+  `./output/<timestamp>.<ext>` (the `output` directory is created in the current working directory
+  if it doesn't exist). In live mode `txt` appends to an existing file; the timed formats
   replace it, since a subtitle or JSON document cannot resume mid-file
 - `--duration <seconds>` - (once mode) Record fixed duration instead of waiting for Ctrl-C
 - `--segment-seconds <n>` - (live mode) Segment length in seconds (default: 8)
@@ -106,6 +109,16 @@ sys2txt live --model small.en --segment-seconds 8
   audio to catch up, or stop with an error (default: drop). Requires `--max-lag`
 - `--timestamps` - Print timestamps alongside text (plain text only; the timed formats always carry
   their own)
+- `--verbose` / `-v` - Enable debug logging
+- `--quiet` / `-q` - Suppress informational log messages (warnings and errors still show)
+
+### Environment variables
+
+- `SYS2TXT_DEVICE` - Default for `--device` (`cpu`, `cuda`, `vulkan`, `gpu`)
+- `SYS2TXT_WHISPER_CPP` - Path to the `whisper-cli` binary, used when `--whisper-cpp-path` is omitted
+- `SYS2TXT_WHISPER_CPP_MODELS` - Directory containing whisper.cpp model files, used when `--model-path` is omitted
+- `WHISPER_MODEL` - Default for `--model` (falls back to `small.en`)
+- `LOG_LEVEL` - Overrides `--verbose`/`--quiet` with an explicit logging level (e.g. `DEBUG`, `INFO`, `WARNING`)
 
 ### Keeping up with real time
 
@@ -301,7 +314,7 @@ The full public API is `AudioSegment`, `Cue`, `OUTPUT_FORMATS`, `Transcript`, `T
 
 ## AMD GPU (Vulkan)
 
-For AMD GPUs (or other GPUs not supported by CUDA), you can use whisper.cpp with Vulkan acceleration for ~8x speedup over CPU.
+For AMD GPUs (or other GPUs not supported by CUDA), you can use whisper.cpp with Vulkan acceleration, which is substantially faster than CPU-only transcription (the exact speedup depends on your GPU and model size).
 
 ### Build whisper.cpp with Vulkan
 

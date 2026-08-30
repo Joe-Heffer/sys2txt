@@ -9,9 +9,8 @@ Releases are automated with [release-please](https://github.com/googleapis/relea
    it when you're ready to release.
 3. Merging that PR triggers release-please to bump the version in `pyproject.toml`, update
    `CHANGELOG.md`, tag the commit, and publish a GitHub release.
-4. Publishing the GitHub release triggers `.github/workflows/publish-to-pypi.yml`, which
-   builds, signs (Sigstore), and publishes the package to [PyPI](https://pypi.org/project/sys2txt/)
-   via trusted publishing.
+4. Tagging the commit (as `v*`) triggers `.github/workflows/publish-to-pypi.yml`, which builds
+   and publishes the package to [PyPI](https://pypi.org/project/sys2txt/) via trusted publishing.
 
 ## Release candidates
 

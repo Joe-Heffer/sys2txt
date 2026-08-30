@@ -24,7 +24,7 @@ sudo apt update && sudo apt install -y ffmpeg python3-venv python3-pip
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
-pip install -r requirements.txt
+pip install -e ".[dev]"
 ```
 
 ## Running the Application
@@ -55,7 +55,8 @@ Alternatively, run as a module without installing: `python -m sys2txt once --mod
 
 Common flags:
 - `--source <name>`: Specify PulseAudio/PipeWire source (e.g., `alsa_output.pci-0000_00_1f.3.analog-stereo.monitor`)
-- `--model {tiny,base,small,medium,large-v2}`: Whisper model size (default: small)
+- `--model <size>`: Whisper model size, no fixed set of choices, e.g. tiny|base|small|medium|large-v2,
+  optionally suffixed `.en` for English-only (default: small.en)
 - `--engine {auto,faster,whisper,cpp}`: Force specific engine (default: auto)
 - `--device {auto,cpu,vulkan,gpu,cuda}`: Device for transcription (default: auto)
 - `--language <code>`: Force language code (e.g., en)
@@ -69,6 +70,8 @@ Common flags:
 - `--timestamps`: Include timestamps in output
 - `--model-path <path>`: Path to whisper.cpp model file (for cpp engine)
 - `--whisper-cpp-path <path>`: Path to whisper-cli binary (for cpp engine)
+- `--verbose`/`-v`: Enable debug logging
+- `--quiet`/`-q`: Suppress informational log messages
 
 ## Architecture
 
@@ -157,6 +160,8 @@ The codebase is organized into focused modules by functionality:
 - `SYS2TXT_DEVICE`: Device selection for faster-whisper (`cpu`, `cuda`)
 - `SYS2TXT_WHISPER_CPP`: Path to whisper-cli binary
 - `SYS2TXT_WHISPER_CPP_MODELS`: Directory containing whisper.cpp model files (e.g., `ggml-small.bin`)
+- `WHISPER_MODEL`: Default for `--model` (falls back to `small.en`)
+- `LOG_LEVEL`: Overrides `--verbose`/`--quiet` with an explicit logging level (e.g. `DEBUG`, `INFO`, `WARNING`)
 
 ## Continuous Integration & Deployment
 
@@ -168,7 +173,7 @@ Runs on:
 - Pull requests to `main` branch
 
 Pipeline includes:
-- Testing on Python 3.9, 3.10, 3.11, and 3.12
+- Testing on Python 3.10, 3.11, 3.12, 3.13, and 3.14
 - Code formatting check with `ruff format --check`
 - Linting with `ruff check`
 - Unit tests with `python -m unittest`
@@ -181,10 +186,8 @@ Pipeline includes:
 - Uses trusted publishing (no API tokens needed)
 
 **PyPI** (`.github/workflows/publish-to-pypi.yml`):
-- Triggered when a GitHub release is published
+- Triggered by pushing a tag matching `v*` or `sys2txt-v*`
 - Publishes to https://pypi.org
-- Signs packages with Sigstore
-- Uploads signed artifacts to GitHub release
 - Uses trusted publishing (no API tokens needed)
 
 ### Setup Required for Publishing
@@ -254,14 +257,13 @@ ruff check --fix src/
   - `tests/test_init.py`: Tests for the public API surface
 - `.github/workflows/`:
   - `ci.yml`: CI workflow (tests, linting, formatting)
-  - `publish-to-pypi.yml`: Publish to PyPI on release
+  - `publish-to-pypi.yml`: Publish to PyPI on tag push
   - `publish-to-testpypi.yml`: Publish to TestPyPI on RC tags
 - `pyproject.toml`: Project metadata, dependencies, and build config
-- `requirements.txt`: Python dependencies (faster-whisper, openai-whisper)
 - `README.md`: User documentation with installation, usage, examples
 
 ## Platform Requirements
 - Ubuntu (or Linux with PulseAudio/PipeWire)
-- Python 3.9+
+- Python 3.10+
 - ffmpeg
 - PulseAudio or PipeWire (for monitor source capture)

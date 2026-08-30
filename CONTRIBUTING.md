@@ -71,92 +71,16 @@ python -m sys2txt once --model small
 
 ## Release Process
 
-### Version Numbering
-
-We follow [PEP 440](https://peps.python.org/pep-0440/) versioning:
-- Standard releases: `0.1.0`, `0.2.0`, `1.0.0`
-- Post releases (patches after a release): `0.1.0.post1`, `0.1.0.post2`
-- Release candidates (for testing): `0.1.0rc1`, `0.1.0rc2`
-
-### Creating a Release
-
-#### 1. Update Version
-
-Update the version in `pyproject.toml`:
-
-```toml
-[project]
-version = "0.1.2"  # or "0.1.1.post1" for post-release
-```
-
-#### 2. Commit Version Bump
-
-```bash
-git add pyproject.toml
-git commit -m "chore: bump version to 0.1.2"
-git push origin main
-```
-
-#### 3. Create and Push Git Tag
-
-```bash
-# Create annotated tag
-git tag -a v0.1.2 -m "Release v0.1.2"
-
-# Push tag to GitHub
-git push origin v0.1.2
-```
-
-**Important**: The tag name must match the version in `pyproject.toml` with a `v` prefix:
-- Version `0.1.2` → Tag `v0.1.2`
-- Version `0.1.1.post1` → Tag `v0.1.1post1`
-
-#### 4. Create GitHub Release
-
-1. Go to https://github.com/Joe-Heffer/sys2txt/releases/new
-2. Select the tag you just pushed (e.g., `v0.1.2`)
-3. Set release title (e.g., "Release v0.1.2")
-4. Add release notes describing changes
-5. Click "Publish release"
-
-This will automatically trigger the PyPI publishing workflow.
-
-### Testing a Release (TestPyPI)
-
-For release candidates, you can test the publishing process using TestPyPI:
-
-#### 1. Update Version to RC
-
-```toml
-[project]
-version = "0.1.2rc1"  # Release candidate
-```
-
-#### 2. Create RC Tag and Push
-
-```bash
-git add pyproject.toml
-git commit -m "chore: prepare release candidate 0.1.2rc1"
-git push origin main
-
-git tag -a v0.1.2-rc1 -m "Release candidate v0.1.2rc1"
-git push origin v0.1.2-rc1
-```
-
-This will publish to TestPyPI at https://test.pypi.org/project/sys2txt/
-
-#### 3. Test Installation from TestPyPI
-
-```bash
-pip install --index-url https://test.pypi.org/simple/ --extra-index-url https://pypi.org/simple/ sys2txt
-```
+Releases are automated with release-please; see [RELEASING.md](RELEASING.md) for the full
+process, including test releases via TestPyPI. Do not bump the version in `pyproject.toml`
+by hand — release-please manages it from Conventional Commit messages.
 
 ### CI/CD Workflows
 
 The project uses GitHub Actions for automated testing and publishing:
 
 - **CI** (`.github/workflows/ci.yml`): Runs on every push and PR
-  - Tests on Python 3.9, 3.10, 3.11, 3.12
+  - Tests on Python 3.10, 3.11, 3.12, 3.13, 3.14
   - Formatting check with `ruff format --check`
   - Linting with `ruff check`
   - Unit tests
@@ -166,10 +90,8 @@ The project uses GitHub Actions for automated testing and publishing:
   - Publishes to https://test.pypi.org
 
 - **PyPI** (`.github/workflows/publish-to-pypi.yml`):
-  - Triggered when a GitHub release is published
-  - Publishes to https://pypi.org
-  - Signs packages with Sigstore
-  - Uploads signed artifacts to release
+  - Triggered by pushing a tag matching `v*` or `sys2txt-v*`
+  - Publishes to https://pypi.org via trusted publishing
 
 ## Pull Request Guidelines
 
@@ -185,7 +107,7 @@ The project uses GitHub Actions for automated testing and publishing:
 
 - Follow PEP 8 (enforced by Ruff)
 - Line length: 120 characters
-- Target Python 3.9+ compatibility
+- Target Python 3.10+ compatibility
 - Use type hints where beneficial
 - Write docstrings for public functions
 
