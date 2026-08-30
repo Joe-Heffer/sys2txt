@@ -38,6 +38,9 @@ MIN_TRANSCRIBE_TIMEOUT = 60
 WHISPER_CPP_TIMEOUT = 300
 "Seconds to wait for whisper-cli before assuming a GPU hang or malformed audio"
 
+WHISPER_CPP_MODEL_URL_TEMPLATE = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/{filename}"
+"URL template for downloading a missing whisper.cpp GGML model; {filename} is e.g. ggml-small.bin"
+
 LAG_WARN_FACTOR = 2
 "Live mode warns that it is falling behind once the backlog exceeds this many segments"
 

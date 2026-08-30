@@ -337,6 +337,10 @@ cmake --build build --config Release
 
 ### Download models
 
+sys2txt downloads a missing model automatically the first time it's needed, saving it to
+`SYS2TXT_WHISPER_CPP_MODELS` (or `~/.local/share/whisper.cpp/models` by default). Pass `--no-download`
+to disable this and fail instead, or fetch a model yourself:
+
 ```bash
 # Download a model (e.g., small)
 ./models/download-ggml-model.sh small

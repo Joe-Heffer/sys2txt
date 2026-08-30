@@ -25,11 +25,13 @@ import shutil
 import subprocess
 import tempfile
 import threading
+import urllib.error
+import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, List, Optional, Protocol, Tuple, runtime_checkable
 
-from .constants import WHISPER_CPP_TIMEOUT
+from .constants import WHISPER_CPP_MODEL_URL_TEMPLATE, WHISPER_CPP_TIMEOUT
 from .formats import Cue, Transcript
 
 logger = logging.getLogger(__name__)
@@ -46,6 +48,7 @@ class TranscriptionConfig:
     timestamps: bool = False
     model_path: Optional[str] = None
     whisper_cpp_path: Optional[str] = None
+    download_model: bool = True
 
 
 @runtime_checkable
@@ -245,23 +248,65 @@ def _resolve_whisper_cpp_binary(whisper_cpp_path: Optional[str]) -> str:
     )
 
 
-def _resolve_whisper_cpp_model_path(model_path: Optional[str], model_size: str) -> str:
-    """Resolve the path to a whisper.cpp model file.
+def _download_whisper_cpp_model(model_filename: str, destination: Path) -> None:
+    """Download a whisper.cpp GGML model from the ggerganov/whisper.cpp Hugging Face repo.
+
+    Streams to a ``.part`` file alongside ``destination`` and renames it into place on
+    success, so a failed or interrupted download never leaves a file that later looks
+    like a complete model.
+
+    Raises:
+        RuntimeError: If the download fails for any reason
+    """
+    url = WHISPER_CPP_MODEL_URL_TEMPLATE.format(filename=model_filename)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    partial = destination.with_suffix(destination.suffix + ".part")
+
+    logger.info("Downloading whisper.cpp model '%s' from %s", model_filename, url)
+    try:
+        with urllib.request.urlopen(url) as response, open(partial, "wb") as f:
+            total = response.getheader("Content-Length")
+            total_bytes = int(total) if total else None
+            written = 0
+            last_logged_percent = -1
+            while chunk := response.read(1024 * 1024):
+                f.write(chunk)
+                written += len(chunk)
+                if total_bytes:
+                    percent = written * 100 // total_bytes
+                    if percent >= last_logged_percent + 10:
+                        logger.info("Downloading %s: %d%%", model_filename, percent)
+                        last_logged_percent = percent
+    except (urllib.error.URLError, OSError) as e:
+        partial.unlink(missing_ok=True)
+        raise RuntimeError(f"Failed to download whisper.cpp model '{model_filename}' from {url}: {e}") from e
+
+    partial.rename(destination)
+    logger.info("Downloaded whisper.cpp model to %s", destination)
+
+
+def _resolve_whisper_cpp_model_path(model_path: Optional[str], model_size: str, download: bool = True) -> str:
+    """Resolve the path to a whisper.cpp model file, downloading it if missing.
 
     Priority:
     1. Explicit model_path argument
     2. SYS2TXT_WHISPER_CPP_MODELS directory + ggml-{model_size}.bin
     3. ~/.local/share/whisper.cpp/models/ggml-{model_size}.bin
 
+    If none of these exist and ``download`` is true, the model is fetched from the
+    ggerganov/whisper.cpp Hugging Face repo into the resolved models directory
+    (``SYS2TXT_WHISPER_CPP_MODELS`` if set, else the default directory above).
+
     Args:
         model_path: Explicit path to model file
         model_size: Whisper model size (tiny, base, small, medium, large-v2)
+        download: Whether to attempt downloading a missing model
 
     Returns:
         Path to model file
 
     Raises:
-        RuntimeError: If model file cannot be found
+        RuntimeError: If model file cannot be found or downloaded
     """
     if model_path:
         if not os.path.isfile(model_path):
@@ -280,6 +325,17 @@ def _resolve_whisper_cpp_model_path(model_path: Optional[str], model_size: str) 
     default_path = default_dir / model_filename
     if default_path.is_file():
         return str(default_path)
+
+    target_dir = Path(env_models_dir) if env_models_dir else default_dir
+    target_path = target_dir / model_filename
+
+    if download:
+        try:
+            _download_whisper_cpp_model(model_filename, target_path)
+        except RuntimeError as e:
+            logger.warning("%s", e)
+        else:
+            return str(target_path)
 
     raise RuntimeError(
         f"whisper.cpp model '{model_filename}' not found. Either:\n"
@@ -359,7 +415,7 @@ class WhisperCppEngine:
             RuntimeError: If whisper-cli or its model cannot be found, or it fails
         """
         binary = _resolve_whisper_cpp_binary(config.whisper_cpp_path)
-        model = _resolve_whisper_cpp_model_path(config.model_path, config.model)
+        model = _resolve_whisper_cpp_model_path(config.model_path, config.model, download=config.download_model)
 
         with tempfile.TemporaryDirectory(prefix="sys2txt-whisper-cpp-") as tmpdir:
             output_prefix = os.path.join(tmpdir, "output")
