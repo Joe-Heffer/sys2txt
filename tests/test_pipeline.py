@@ -196,6 +196,38 @@ class TestTranscribeLive(unittest.TestCase):
 
         self.assertTrue(source.closed)
 
+    @patch("sys2txt.pipeline.ThreadPoolExecutor")
+    @patch("sys2txt.pipeline.iter_audio_segments")
+    def test_interrupt_waits_for_the_in_flight_worker_before_closing_the_source(self, mock_iter, mock_executor_cls):
+        """Ctrl-C during future.result() must not let the source's cleanup outrun the worker.
+
+        The generator's close() removes the temp directory the worker is reading from, so the
+        worker must be given a chance to finish first (issue #55).
+        """
+        source = ClosableSegments(make_segments(1))
+        mock_iter.return_value = source
+        future = MagicMock()
+        future.done.return_value = False
+        future.result.side_effect = [KeyboardInterrupt(), spoken("hello")]
+        executor = mock_executor_cls.return_value
+        executor.submit.return_value = future
+
+        events = []
+        source.close = lambda: events.append("closed")
+        executor.shutdown.side_effect = lambda **_: events.append("shutdown")
+        orig_result = future.result
+
+        def tracked_result(*a, **kw):
+            events.append("result")
+            return orig_result(*a, **kw)
+
+        future.result = tracked_result
+
+        with self.assertRaises(KeyboardInterrupt):
+            list(transcribe_live("test.monitor", self.config, segment_seconds=8))
+
+        self.assertEqual(events, ["result", "result", "shutdown", "closed"])
+
 
 class TestLiveBackpressure(unittest.TestCase):
     """Tests for reporting and capping how far transcription falls behind recording."""
