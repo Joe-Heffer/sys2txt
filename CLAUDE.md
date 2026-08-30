@@ -70,6 +70,7 @@ Common flags:
 - `--timestamps`: Include timestamps in output
 - `--model-path <path>`: Path to whisper.cpp model file (for cpp engine)
 - `--whisper-cpp-path <path>`: Path to whisper-cli binary (for cpp engine)
+- `--no-download`: Don't auto-download a missing whisper.cpp model file (for cpp engine)
 - `--verbose`/`-v`: Enable debug logging
 - `--quiet`/`-q`: Suppress informational log messages
 
@@ -106,7 +107,7 @@ The codebase is organized into focused modules by functionality:
 - `run_command()`: Helper for running system commands
 
 **engines.py** - The transcription engines and the registry that selects between them:
-- `TranscriptionConfig`: Dataclass bundling engine, model, device, language, timestamps, model_path, and whisper_cpp_path. Engines take it whole; nothing destructures it into positional arguments
+- `TranscriptionConfig`: Dataclass bundling engine, model, device, language, timestamps, model_path, whisper_cpp_path, and download_model. Engines take it whole; nothing destructures it into positional arguments
 - `TranscriptionEngine`: `Protocol` of `name`, `is_available()`, `transcribe(path, config) -> Transcript` and `unload()`
 - `_CachedModelEngine`: Base for engines that load a model. Holds the model, its key and a lock as instance state, reloading only when the key changes. One model per engine: a second would double the memory a transcription needs, and a run only ever uses one
 - `FasterWhisperEngine` (`faster`): faster_whisper.WhisperModel with VAD filter, keyed on `(model, device, compute_type)`
@@ -114,7 +115,8 @@ The codebase is organized into focused modules by functionality:
 - `WhisperCppEngine` (`cpp`): Runs the whisper-cli subprocess with GPU/CPU support. Caches nothing, since the binary loads its own model
 - `_resolve_device()`: `auto` reads `SYS2TXT_DEVICE` then falls back to CPU; the whisper.cpp-only GPU choices (`vulkan`, `gpu`) resolve to CPU for the Python engines
 - `_resolve_whisper_cpp_binary()`: Resolves whisper-cli path from arg/env/PATH
-- `_resolve_whisper_cpp_model_path()`: Resolves model path from arg/env/default
+- `_resolve_whisper_cpp_model_path()`: Resolves model path from arg/env/default, downloading a missing model from the `ggerganov/whisper.cpp` Hugging Face repo unless `download=False` (`config.download_model`, set from `--no-download`)
+- `_download_whisper_cpp_model()`: Streams a model to a `.part` file and renames it into place on success; failures are caught by the resolver and fall back to the existing "not found" error
 - `_parse_whisper_cpp_output()`: Parses whisper.cpp's `[HH:MM:SS.mmm --> HH:MM:SS.mmm]` lines into cues
 - `ENGINES`: The registry, in the order `auto` prefers them. `ENGINE_NAMES` derives the `--engine` choices from it, so adding an engine means writing one class and adding it here
 - `get_engine(name)`: `auto` returns the first engine whose `is_available()` is true, raising `RuntimeError` naming all of them if none is installed; a named engine is returned without the availability check, so the user gets that backend's own diagnostic; anything else raises `ValueError`
@@ -126,7 +128,7 @@ The codebase is organized into focused modules by functionality:
 - `transcribe_file(path, config)`: The text form, `render_transcript(..., "txt", timestamps=config.timestamps)` over the above. Output is unchanged from before formats existed
 - Re-exports `TranscriptionConfig` from `engines.py`, so `from sys2txt.transcribe import TranscriptionConfig` keeps working
 
-**constants.py** - Configuration shared by library and CLI: default model, capture `SAMPLE_RATE`/`CHANNELS`, segment length and poll interval, minimum segment size, ffmpeg shutdown grace, transcription timeouts, `LAG_WARN_FACTOR`, `MAX_CONSECUTIVE_SEGMENT_FAILURES`, default output format.
+**constants.py** - Configuration shared by library and CLI: default model, capture `SAMPLE_RATE`/`CHANNELS`, segment length and poll interval, minimum segment size, ffmpeg shutdown grace, transcription timeouts, `LAG_WARN_FACTOR`, `MAX_CONSECUTIVE_SEGMENT_FAILURES`, default output format, `WHISPER_CPP_MODEL_URL_TEMPLATE`.
 
 **utils.py** - Utility functions:
 - `which()`: Find command in PATH or raise RuntimeError

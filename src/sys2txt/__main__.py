@@ -42,6 +42,7 @@ class Options:
     list_sources: bool = False
     model_path: Optional[str] = None
     whisper_cpp_path: Optional[str] = None
+    download_model: bool = True
     output: Optional[str] = None
     duration: Optional[int] = None
     input_path: Optional[str] = None
@@ -132,6 +133,8 @@ def _build_options(args: argparse.Namespace) -> Options:
             logger.warning("--model-path is only used with --engine cpp")
         if args.whisper_cpp_path:
             logger.warning("--whisper-cpp-path is only used with --engine cpp")
+        if args.no_download:
+            logger.warning("--no-download is only used with --engine cpp")
 
     if args.device in ("vulkan", "gpu") and args.engine != "cpp":
         logger.warning(
@@ -153,6 +156,7 @@ def _build_options(args: argparse.Namespace) -> Options:
         list_sources=args.list_sources,
         model_path=args.model_path,
         whisper_cpp_path=args.whisper_cpp_path,
+        download_model=not args.no_download,
         output=args.output,
         duration=duration,
         input_path=input_path,
@@ -173,6 +177,7 @@ def _build_transcription_config(options: Options) -> TranscriptionConfig:
         timestamps=options.timestamps,
         model_path=options.model_path,
         whisper_cpp_path=options.whisper_cpp_path,
+        download_model=options.download_model,
         device=options.device,
     )
 
@@ -321,6 +326,11 @@ def _build_parser() -> argparse.ArgumentParser:
         "--whisper-cpp-path",
         default=None,
         help="Path to whisper-cli binary (for cpp engine)",
+    )
+    common.add_argument(
+        "--no-download",
+        action="store_true",
+        help="Don't automatically download a missing whisper.cpp model file (for cpp engine)",
     )
 
     once = sub.add_parser("once", parents=[common], help="Record once and transcribe after")

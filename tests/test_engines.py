@@ -4,8 +4,10 @@ import json
 import os
 import subprocess
 import sys
+import tempfile
 import threading
 import unittest
+import urllib.error
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -17,6 +19,7 @@ from sys2txt.engines import (
     TranscriptionConfig,
     TranscriptionEngine,
     WhisperCppEngine,
+    _download_whisper_cpp_model,
     _parse_whisper_cpp_json,
     _resolve_device,
     _resolve_whisper_cpp_binary,
@@ -437,14 +440,79 @@ class TestResolveWhisperCppModelPath(unittest.TestCase):
         self.assertEqual(result, str(expected_path))
 
     @patch.dict(os.environ, {}, clear=True)
-    def test_model_not_found(self):
-        """Test model not found anywhere."""
+    def test_model_not_found_download_disabled(self):
+        """Test model not found anywhere and downloading is disabled."""
+        with patch("os.path.isfile", return_value=False):
+            with patch.object(Path, "is_file", return_value=False):
+                with self.assertRaises(RuntimeError) as cm:
+                    _resolve_whisper_cpp_model_path(None, "small", download=False)
+
+        self.assertIn("ggml-small.bin", str(cm.exception))
+
+    @patch("sys2txt.engines._download_whisper_cpp_model")
+    def test_model_missing_downloads_it(self, mock_download):
+        """Test a missing model is downloaded to the default directory."""
+        expected_path = Path.home() / ".local" / "share" / "whisper.cpp" / "models" / "ggml-small.bin"
+
+        with patch("os.path.isfile", return_value=False):
+            with patch.object(Path, "is_file", return_value=False):
+                result = _resolve_whisper_cpp_model_path(None, "small")
+
+        mock_download.assert_called_once_with("ggml-small.bin", expected_path)
+        self.assertEqual(result, str(expected_path))
+
+    @patch.dict(os.environ, {"SYS2TXT_WHISPER_CPP_MODELS": "/models"})
+    @patch("sys2txt.engines._download_whisper_cpp_model")
+    def test_model_missing_downloads_to_env_dir(self, mock_download):
+        """Test a missing model is downloaded to SYS2TXT_WHISPER_CPP_MODELS if set."""
+        with patch("os.path.isfile", return_value=False):
+            result = _resolve_whisper_cpp_model_path(None, "small")
+
+        mock_download.assert_called_once_with("ggml-small.bin", Path("/models/ggml-small.bin"))
+        self.assertEqual(result, "/models/ggml-small.bin")
+
+    @patch("sys2txt.engines._download_whisper_cpp_model")
+    def test_download_failure_falls_back_to_error(self, mock_download):
+        """Test a failed download still raises the original 'not found' error."""
+        mock_download.side_effect = RuntimeError("network unreachable")
+
         with patch("os.path.isfile", return_value=False):
             with patch.object(Path, "is_file", return_value=False):
                 with self.assertRaises(RuntimeError) as cm:
                     _resolve_whisper_cpp_model_path(None, "small")
 
         self.assertIn("ggml-small.bin", str(cm.exception))
+
+
+class TestDownloadWhisperCppModel(unittest.TestCase):
+    """Tests for the _download_whisper_cpp_model() function."""
+
+    def test_downloads_and_renames_into_place(self):
+        """Test the body is streamed to a .part file and renamed on success."""
+        response = MagicMock()
+        response.getheader.return_value = None
+        response.read.side_effect = [b"chunk1", b"chunk2", b""]
+        response.__enter__.return_value = response
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            destination = Path(tmpdir) / "models" / "ggml-small.bin"
+            with patch("urllib.request.urlopen", return_value=response):
+                _download_whisper_cpp_model("ggml-small.bin", destination)
+
+            self.assertTrue(destination.is_file())
+            self.assertEqual(destination.read_bytes(), b"chunk1chunk2")
+            self.assertFalse(destination.with_suffix(".bin.part").exists())
+
+    def test_download_failure_removes_partial_file(self):
+        """Test a network failure raises RuntimeError and cleans up the .part file."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            destination = Path(tmpdir) / "models" / "ggml-small.bin"
+            with patch("urllib.request.urlopen", side_effect=urllib.error.URLError("boom")):
+                with self.assertRaises(RuntimeError) as cm:
+                    _download_whisper_cpp_model("ggml-small.bin", destination)
+
+            self.assertIn("Failed to download", str(cm.exception))
+            self.assertFalse((destination.parent / "ggml-small.bin.part").exists())
 
 
 def whisper_cpp_json(segments, language=None):
@@ -607,7 +675,7 @@ class TestWhisperCppEngine(unittest.TestCase):
         self.engine.transcribe("/path/to/audio.wav", config)
 
         mock_binary.assert_called_once_with("/custom/whisper-cli")
-        mock_model_path.assert_called_once_with("/custom/model.bin", "small")
+        mock_model_path.assert_called_once_with("/custom/model.bin", "small", download=True)
 
     @patch("subprocess.run")
     def test_transcribe_failure(self, mock_run, _model_path, _binary):

@@ -37,6 +37,7 @@ def make_args(**overrides):
         list_sources=False,
         model_path=None,
         whisper_cpp_path=None,
+        no_download=False,
         output=None,
         segment_seconds=8,
         silence_timeout=0,
@@ -127,6 +128,7 @@ class TestBuildOptions(unittest.TestCase):
         self.assertTrue(options.timestamps)
         self.assertEqual(options.model_path, "/models/ggml.bin")
         self.assertEqual(options.whisper_cpp_path, "/usr/local/bin/whisper-cli")
+        self.assertTrue(options.download_model)
         self.assertEqual(options.output, "/tmp/out.txt")
         self.assertEqual(options.duration, 30)
 
@@ -209,10 +211,10 @@ class TestBuildOptions(unittest.TestCase):
                 _build_options(make_args(timestamps=True, output_format="txt"))
 
     def test_warns_about_cpp_only_flags(self):
-        args = make_args(engine="faster", model_path="/m.bin", whisper_cpp_path="/w")
+        args = make_args(engine="faster", model_path="/m.bin", whisper_cpp_path="/w", no_download=True)
         with self.assertLogs("sys2txt.__main__", level="WARNING") as logs:
             _build_options(args)
-        self.assertEqual(len(logs.output), 2)
+        self.assertEqual(len(logs.output), 3)
 
     def test_warns_that_vulkan_device_falls_back_to_cpu_on_non_cpp_engine(self):
         args = make_args(engine="faster", device="vulkan")
