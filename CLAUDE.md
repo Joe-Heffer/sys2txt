@@ -64,6 +64,8 @@ Common flags:
 - `--duration <seconds>`: (once mode) Fixed recording duration
 - `--segment-seconds <n>`: (live mode) Segment length (default: 8)
 - `--silence-timeout <seconds>`: (live mode) Auto-stop after N consecutive seconds of silence (0=disabled, default: 0)
+- `--max-lag <seconds>`: (live mode) Untranscribed audio tolerated before `--on-lag` applies (0=unlimited, default: 0)
+- `--on-lag {drop,fail}`: (live mode) What to do past `--max-lag` (default: drop). Requires `--max-lag`
 - `--timestamps`: Include timestamps in output
 - `--model-path <path>`: Path to whisper.cpp model file (for cpp engine)
 - `--whisper-cpp-path <path>`: Path to whisper-cli binary (for cpp engine)
@@ -76,9 +78,9 @@ The codebase is organized into focused modules by functionality:
 ### Core Modules
 
 **audio.py** - Audio recording, and nothing else:
-- `AudioSegment`: Frozen dataclass of `(index, path)` for one finalized chunk of recorded audio
+- `AudioSegment`: Frozen dataclass of `(index, path, lag, dropped)` for one finalized chunk of recorded audio. `lag` is the seconds of finalized audio still queued behind it; `dropped` counts the segments discarded immediately before it
 - `record_once()`: Spawns ffmpeg subprocess to record from PulseAudio/PipeWire source to WAV file. `sample_rate`/`channels` are keyword-only and default to the constants.
-- `iter_audio_segments()`: Generator. Spawns ffmpeg with the segment muxer, polls the temporary directory for finalized segments, and yields an `AudioSegment` for each. Indices are tracked by a counter (a segment holding no audio is skipped but still consumes its index). A consumer that breaks out of the loop or closes the generator triggers the `finally` that sends `q` to ffmpeg and removes the temporary directory. No transcription, no printing, no file writing.
+- `iter_audio_segments()`: Generator. Spawns ffmpeg with the segment muxer, polls the temporary directory for finalized segments, and yields one `AudioSegment` per pass of the loop, so the queue is re-measured every time the consumer comes back. Indices are tracked by a counter (a segment holding no audio, or one dropped to catch up, is skipped but still consumes its index, so `index * segment_seconds` always lands on the recording's timeline). `max_lag` caps the queue by discarding the oldest segments; 0 keeps everything. A yielded file is removed once the consumer asks for the next one, so the temporary directory holds the backlog rather than the whole session. A consumer that breaks out of the loop or closes the generator triggers the `finally` that sends `q` to ffmpeg and removes the temporary directory. No transcription, no printing, no file writing.
 
 **formats.py** - Transcript data types and output formats:
 - `Cue`: Frozen dataclass of `(start, end, text)`; one timed span of speech, in seconds from the start of the recording. `shifted(offset)` moves it along the timeline
@@ -90,8 +92,8 @@ The codebase is organized into focused modules by functionality:
 - Pure formatting: no engine imports, no printing, no file writing
 
 **pipeline.py** - Recording and transcription combined:
-- `TranscriptSegment`: Frozen dataclass of `(index, text, start, end, cues, error)` with a `failed` property. `start`/`end` are the segment's fixed window on the recording clock; `cues` are the engine's own per-utterance spans, rebased onto that timeline by adding the segment's start. `error` is `None` on success and holds the reason on failure, which is what distinguishes a failed segment from a silent one (both have empty `text`).
-- `transcribe_live()`: Generator over `iter_audio_segments()`, transcribing each segment on a single-worker `ThreadPoolExecutor` with a timeout. A segment that fails or times out is yielded with empty text and an `error`, and logged as a warning. A timed-out worker cannot be cancelled, so the pool is abandoned (`_new_executor()` builds a replacement) rather than letting the next segment queue behind it and time out too.
+- `TranscriptSegment`: Frozen dataclass of `(index, text, start, end, cues, error, lag, dropped)` with a `failed` property. `start`/`end` are the segment's fixed window on the recording clock; `cues` are the engine's own per-utterance spans, rebased onto that timeline by adding the segment's start. `error` is `None` on success and holds the reason on failure, which is what distinguishes a failed segment from a silent one (both have empty `text`). `lag` and `dropped` come straight from the `AudioSegment` and say how far behind recording transcription has fallen.
+- `transcribe_live()`: Generator over `iter_audio_segments()`, transcribing each segment on a single-worker `ThreadPoolExecutor` with a timeout. `max_lag` is passed straight through to the recorder, since the backlog it caps is the recorder's. `_warn_lag()` warns once the backlog passes `LAG_WARN_FACTOR` segments and then only as it grows by another segment, so a slow run reports its drift without filling the log. A segment that fails or times out is yielded with empty text and an `error`, and logged as a warning. A timed-out worker cannot be cancelled, so the pool is abandoned (`_new_executor()` builds a replacement) rather than letting the next segment queue behind it and time out too.
 - `transcribe_once()`: Records to a temporary WAV and returns its transcript as text
 - `transcribe_once_cues()`: The structured form of `transcribe_once()`, returning a `Transcript`
 
@@ -121,7 +123,7 @@ The codebase is organized into focused modules by functionality:
 - `transcribe_file(path, config)`: The text form, `render_transcript(..., "txt", timestamps=config.timestamps)` over the above. Output is unchanged from before formats existed
 - Re-exports `TranscriptionConfig` from `engines.py`, so `from sys2txt.transcribe import TranscriptionConfig` keeps working
 
-**constants.py** - Configuration shared by library and CLI: default model, capture `SAMPLE_RATE`/`CHANNELS`, segment length and poll interval, minimum segment size, ffmpeg shutdown grace, transcription timeouts, `MAX_CONSECUTIVE_SEGMENT_FAILURES`, default output format.
+**constants.py** - Configuration shared by library and CLI: default model, capture `SAMPLE_RATE`/`CHANNELS`, segment length and poll interval, minimum segment size, ffmpeg shutdown grace, transcription timeouts, `LAG_WARN_FACTOR`, `MAX_CONSECUTIVE_SEGMENT_FAILURES`, default output format.
 
 **utils.py** - Utility functions:
 - `which()`: Find command in PATH or raise RuntimeError
@@ -130,9 +132,9 @@ The codebase is organized into focused modules by functionality:
 
 **__main__.py** - CLI entry point, and the only module that prints:
 - argparse with subcommands: `once` and `live`, built by `_build_parser()`
-- `Options`: Frozen dataclass; `_build_options(args)` converts the argparse `Namespace` once and validates it (missing `--input` file, non-positive `--duration`/`--segment-seconds`, `--silence-timeout` shorter than a segment), raising `ValueError` that `main()` turns into a usage error (exit 2)
+- `Options`: Frozen dataclass; `_build_options(args)` converts the argparse `Namespace` once and validates it (missing `--input` file, non-positive `--duration`/`--segment-seconds`, `--silence-timeout` or `--max-lag` shorter than a segment, `--on-lag` without a `--max-lag`), raising `ValueError` that `main()` turns into a usage error (exit 2)
 - `_run_once()`: Transcribes to cues, renders them in `--format`, and prints and writes the document
-- `_run_live()`: Consumes `transcribe_live()`, formatting and printing each segment, and applying the stop policies by breaking out of the loop. Plain text keeps its per-segment line format and appends to the output file; the timed formats stream a document through `get_formatter()`, opening the file for writing and emitting the footer after the loop so Ctrl-C and the silence timeout both close it. Silence is measured along the segment timeline (`segment.end` minus the start of the silent stretch), so skipped segments are accounted for. Failed segments never count as silence; `MAX_CONSECUTIVE_SEGMENT_FAILURES` of them in a row save the transcript and raise `RuntimeError`, which `main()` turns into an error and exit 1
+- `_run_live()`: Consumes `transcribe_live()`, formatting and printing each segment, and applying the stop policies by breaking out of the loop. Plain text keeps its per-segment line format and appends to the output file; the timed formats stream a document through `get_formatter()`, opening the file for writing and emitting the footer after the loop so Ctrl-C and the silence timeout both close it. Silence is measured along the segment timeline (`segment.end` minus the start of the silent stretch), so skipped segments are accounted for. Failed segments never count as silence; `MAX_CONSECUTIVE_SEGMENT_FAILURES` of them in a row save the transcript and raise `RuntimeError`, which `main()` turns into an error and exit 1. Backpressure policy lives here too: `--on-lag drop` forwards `--max-lag` to `transcribe_live()`, while `--on-lag fail` withholds it and instead breaks out of the loop once `segment.lag` passes it, taking the same save-then-`RuntimeError` path so the document is still closed. Dropped audio resets the silence stretch without counting as a failure
 
 ### Key Dependencies
 - **ffmpeg**: System command for audio recording (checked via shutil.which)

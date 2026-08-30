@@ -39,6 +39,8 @@ def make_args(**overrides):
         output=None,
         segment_seconds=8,
         silence_timeout=0,
+        max_lag=0.0,
+        on_lag=None,
         output_format="txt",
     )
     values.update(overrides)
@@ -52,13 +54,14 @@ class Failure:
         self.reason = reason
 
 
-def live_segments(*items, segment_seconds=8, indices=None):
+def live_segments(*items, segment_seconds=8, indices=None, lags=(), dropped=()):
     """Yield TranscriptSegment values the way transcribe_live does.
 
     Each item is either transcript text or a Failure marker. A spoken segment carries one cue
     two seconds long, already rebased onto the recording timeline; a silent or failed segment
     carries none. Pass indices to place the segments on the timeline non-contiguously, as
-    happens when empty segments are skipped.
+    happens when empty segments are skipped, and lags/dropped to say how far behind
+    transcription had fallen and how much audio was discarded before each segment.
     """
     for position, item in enumerate(items):
         index = indices[position] if indices else position
@@ -73,6 +76,8 @@ def live_segments(*items, segment_seconds=8, indices=None):
             end=float(start + segment_seconds),
             cues=cues,
             error=item.reason if failed else None,
+            lag=lags[position] if position < len(lags) else 0.0,
+            dropped=dropped[position] if position < len(dropped) else 0,
         )
 
 
@@ -155,6 +160,33 @@ class TestBuildOptions(unittest.TestCase):
     def test_silence_timeout_equal_to_segment_length_is_accepted(self):
         options = _build_options(make_args(segment_seconds=8, silence_timeout=8))
         self.assertEqual(options.silence_timeout, 8)
+
+    def test_lag_options_default_to_warning_only(self):
+        options = _build_options(make_args())
+        self.assertEqual(options.max_lag, 0.0)
+        self.assertEqual(options.on_lag, "drop")
+
+    def test_lag_options_are_copied_onto_options(self):
+        options = _build_options(make_args(segment_seconds=8, max_lag=24.0, on_lag="fail"))
+        self.assertEqual(options.max_lag, 24.0)
+        self.assertEqual(options.on_lag, "fail")
+
+    def test_negative_max_lag_is_rejected(self):
+        with self.assertRaises(ValueError):
+            _build_options(make_args(max_lag=-1.0))
+
+    def test_max_lag_shorter_than_a_segment_is_rejected(self):
+        with self.assertRaises(ValueError) as ctx:
+            _build_options(make_args(segment_seconds=8, max_lag=3.0))
+        self.assertIn("--max-lag", str(ctx.exception))
+
+    def test_max_lag_equal_to_segment_length_is_accepted(self):
+        self.assertEqual(_build_options(make_args(segment_seconds=8, max_lag=8.0)).max_lag, 8.0)
+
+    def test_on_lag_without_max_lag_is_rejected(self):
+        with self.assertRaises(ValueError) as ctx:
+            _build_options(make_args(on_lag="fail"))
+        self.assertIn("--max-lag", str(ctx.exception))
 
     def test_output_format_defaults_to_txt(self):
         self.assertEqual(_build_options(make_args()).output_format, "txt")
@@ -346,12 +378,15 @@ class TestArgumentParsing(unittest.TestCase):
                     "/tmp/live.txt",
                     "--silence-timeout",
                     "30",
+                    "--max-lag",
+                    "45",
                 ],
             ):
                 main()
         mock_live.assert_called_once()
         self.assertEqual(mock_live.call_args[0][0], "my.monitor")
         self.assertEqual(mock_live.call_args[1]["segment_seconds"], 15)
+        self.assertEqual(mock_live.call_args[1]["max_lag"], 45.0)
         config = mock_live.call_args[0][1]
         self.assertEqual(config.model, "tiny")
         self.assertEqual(config.engine, "cpp")
@@ -401,6 +436,12 @@ class TestInvalidArguments(unittest.TestCase):
 
     def test_silence_timeout_shorter_than_segment(self):
         self._assert_usage_error(["sys2txt", "live", "--segment-seconds", "8", "--silence-timeout", "3"])
+
+    def test_max_lag_shorter_than_segment(self):
+        self._assert_usage_error(["sys2txt", "live", "--segment-seconds", "8", "--max-lag", "3"])
+
+    def test_on_lag_without_max_lag(self):
+        self._assert_usage_error(["sys2txt", "live", "--on-lag", "drop"])
 
     def test_unknown_output_format(self):
         self._assert_usage_error(["sys2txt", "once", "--format", "docx"])
@@ -613,8 +654,8 @@ class TestLiveOutputFormats(unittest.TestCase):
                 self.assertNotIn("stale content", f.read())
 
 
-class TestModeDispatchLive(unittest.TestCase):
-    """Tests for live mode consumption of the transcript stream."""
+class LiveRun:
+    """Runs the CLI in live mode against a canned segment stream."""
 
     def setUp(self):
         self.exit_code = 0
@@ -642,6 +683,10 @@ class TestModeDispatchLive(unittest.TestCase):
             with open(output_file, encoding="utf-8") as f:
                 written = f.read()
         return mock_live, mock_print, written
+
+
+class TestModeDispatchLive(LiveRun, unittest.TestCase):
+    """Tests for live mode consumption of the transcript stream."""
 
     def test_prints_and_saves_each_segment(self):
         _, mock_print, written = self._run_live(
@@ -766,6 +811,74 @@ class TestModeDispatchLive(unittest.TestCase):
                 main()
         with self.assertRaises(StopIteration):
             next(segments)
+
+
+class TestLiveBackpressure(LiveRun, unittest.TestCase):
+    """Tests for what live mode does when transcription cannot keep up with recording."""
+
+    def test_no_cap_is_passed_by_default(self):
+        mock_live, _, _ = self._run_live(["sys2txt", "live"], live_segments("hello"))
+        self.assertEqual(mock_live.call_args[1]["max_lag"], 0.0)
+
+    def test_drop_policy_hands_the_cap_to_the_recorder(self):
+        mock_live, _, _ = self._run_live(
+            ["sys2txt", "live", "--max-lag", "24"],
+            live_segments("hello"),
+        )
+        self.assertEqual(mock_live.call_args[1]["max_lag"], 24.0)
+
+    def test_fail_policy_keeps_every_segment(self):
+        """Failing is a decision about the run, so nothing is dropped on the way to it."""
+        mock_live, _, _ = self._run_live(
+            ["sys2txt", "live", "--max-lag", "24", "--on-lag", "fail"],
+            live_segments("hello", lags=(8.0,)),
+        )
+        self.assertEqual(mock_live.call_args[1]["max_lag"], 0.0)
+
+    def test_fail_policy_stops_once_the_lag_is_past_the_maximum(self):
+        segments = live_segments("hello", "behind", "should never be reached", lags=(0.0, 32.0))
+        with self.assertLogs("sys2txt.__main__", level="ERROR") as logs:
+            _, mock_print, written = self._run_live(
+                ["sys2txt", "live", "--max-lag", "24", "--on-lag", "fail"],
+                segments,
+            )
+
+        self.assertEqual(self.exit_code, 1)
+        self.assertEqual(mock_print.call_count, 2)
+        self.assertIn("32s behind", logs.output[0])
+        self.assertIn("--max-lag of 24s", logs.output[0])
+        # The transcript produced before giving up is still saved
+        self.assertEqual(written, "hello\nbehind\n")
+
+    def test_lag_within_the_maximum_does_not_stop_the_run(self):
+        _, mock_print, _ = self._run_live(
+            ["sys2txt", "live", "--max-lag", "24", "--on-lag", "fail"],
+            live_segments("hello", "world", lags=(8.0, 24.0)),
+        )
+        self.assertEqual(mock_print.call_count, 2)
+        self.assertEqual(self.exit_code, 0)
+
+    def test_dropped_audio_does_not_count_as_silence(self):
+        """A hole in the recording says nothing about whether anyone was speaking."""
+        segments = live_segments("", "", "", "should never be reached", dropped=(0, 2, 0, 0))
+        _, mock_print, _ = self._run_live(
+            ["sys2txt", "live", "--max-lag", "24", "--silence-timeout", "16"],
+            segments,
+        )
+        # Without the reset the second segment would already have reached the timeout
+        self.assertEqual(mock_print.call_count, 3)
+        self.assertEqual(self.exit_code, 0)
+
+    def test_dropped_audio_is_not_a_transcription_failure(self):
+        """Dropping is a deliberate policy, so it never trips the consecutive-failure limit."""
+        segments = live_segments("", "", "", "", "hello", dropped=(1, 1, 1, 1, 0))
+        _, mock_print, written = self._run_live(
+            ["sys2txt", "live", "--max-lag", "16"],
+            segments,
+        )
+        self.assertEqual(mock_print.call_count, 5)
+        self.assertEqual(written, "\n\n\n\n" + "hello\n")
+        self.assertEqual(self.exit_code, 0)
 
 
 class TestConfigureLogging(unittest.TestCase):

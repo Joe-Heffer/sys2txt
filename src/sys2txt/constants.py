@@ -32,6 +32,9 @@ MIN_TRANSCRIBE_TIMEOUT = 60
 WHISPER_CPP_TIMEOUT = 300
 "Seconds to wait for whisper-cli before assuming a GPU hang or malformed audio"
 
+LAG_WARN_FACTOR = 2
+"Live mode warns that it is falling behind once the backlog exceeds this many segments"
+
 MAX_CONSECUTIVE_SEGMENT_FAILURES = 3
 "Consecutive live-mode transcription failures tolerated before giving up"
 

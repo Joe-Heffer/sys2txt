@@ -4,6 +4,7 @@ import os
 import signal
 import tempfile
 import unittest
+from itertools import chain, repeat
 from unittest.mock import MagicMock, patch
 
 from sys2txt.audio import AudioSegment, iter_audio_segments, record_once
@@ -76,14 +77,21 @@ class TestRecordOnce(unittest.TestCase):
         self.assertEqual(mock_proc.wait.call_count, 2)
 
 
+def _write_segments(directory, count, size=1024):
+    """Fill a directory with finalized segment files, as ffmpeg would leave them."""
+    for i in range(count):
+        with open(os.path.join(directory, f"seg_{i:05d}.wav"), "wb") as f:
+            f.write(b"x" * size)
+
+
 class TestIterAudioSegments(unittest.TestCase):
     """Tests for the iter_audio_segments() generator."""
 
     def _ffmpeg_proc(self, poll_results=None, poll_return=None):
-        """Build a mock ffmpeg process."""
+        """Build a mock ffmpeg process, whose last poll result repeats for as long as asked."""
         proc = MagicMock()
         if poll_results is not None:
-            proc.poll.side_effect = poll_results
+            proc.poll.side_effect = chain(poll_results, repeat(poll_results[-1]))
         else:
             proc.poll.return_value = poll_return
         proc.stdin = MagicMock()
@@ -98,14 +106,13 @@ class TestIterAudioSegments(unittest.TestCase):
     def test_yields_finalized_segments_in_order(self, mock_getsize, mock_listdir, _sleep, mock_popen, mock_which):
         """Segments are yielded in order, the newest deferred until ffmpeg exits."""
         mock_which.return_value = "/usr/bin/ffmpeg"
-        # Three loop polls plus one from the shutdown helper
-        mock_popen.return_value = self._ffmpeg_proc(poll_results=[None, None, 0, 0])
-        mock_listdir.side_effect = [
+        mock_popen.return_value = self._ffmpeg_proc(poll_results=[None, None, 0])
+        listings = [
             [],
             ["seg_00000.wav"],  # only one file: still being written
             ["seg_00000.wav", "seg_00001.wav"],  # seg_00000 is finalized
-            ["seg_00000.wav", "seg_00001.wav"],  # flush path picks up seg_00001
         ]
+        mock_listdir.side_effect = chain(listings, repeat(listings[-1]))
         mock_getsize.return_value = 1024
 
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -129,7 +136,7 @@ class TestIterAudioSegments(unittest.TestCase):
     def test_skips_empty_segments_but_keeps_index_on_the_timeline(self, _sleep, mock_popen, mock_which):
         """A segment holding no audio is skipped, but still consumes its index."""
         mock_which.return_value = "/usr/bin/ffmpeg"
-        mock_popen.return_value = self._ffmpeg_proc(poll_results=[None, 0, 0])
+        mock_popen.return_value = self._ffmpeg_proc(poll_return=0)
 
         with tempfile.TemporaryDirectory() as tmpdir:
             with open(os.path.join(tmpdir, "seg_00000.wav"), "wb") as f:
@@ -149,7 +156,7 @@ class TestIterAudioSegments(unittest.TestCase):
     def test_no_segments_when_all_files_are_empty(self, _sleep, mock_popen, mock_which):
         """Nothing is yielded when every segment file is header-only."""
         mock_which.return_value = "/usr/bin/ffmpeg"
-        mock_popen.return_value = self._ffmpeg_proc(poll_results=[0, 0])
+        mock_popen.return_value = self._ffmpeg_proc(poll_return=0)
 
         with tempfile.TemporaryDirectory() as tmpdir:
             with open(os.path.join(tmpdir, "seg_00000.wav"), "wb") as f:
@@ -209,6 +216,78 @@ class TestIterAudioSegments(unittest.TestCase):
 
         self.assertEqual([s.index for s in segments], [0])
         proc.stdin.write.assert_not_called()
+
+    @patch("sys2txt.audio.which", return_value="/usr/bin/ffmpeg")
+    @patch("sys2txt.audio.subprocess.Popen")
+    @patch("sys2txt.audio.time.sleep")
+    def test_lag_reports_the_audio_waiting_behind_a_segment(self, _sleep, mock_popen, _which):
+        """Lag is the recorded audio still queued, so it falls to zero as the queue drains."""
+        mock_popen.return_value = self._ffmpeg_proc(poll_return=0)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            _write_segments(tmpdir, 3)
+            with patch("sys2txt.audio.tempfile.TemporaryDirectory") as mock_tmpdir:
+                mock_tmpdir.return_value.__enter__.return_value = tmpdir
+                segments = list(iter_audio_segments("test.monitor", 8))
+
+        self.assertEqual([s.lag for s in segments], [16.0, 8.0, 0.0])
+        self.assertEqual([s.dropped for s in segments], [0, 0, 0])
+
+    @patch("sys2txt.audio.which", return_value="/usr/bin/ffmpeg")
+    @patch("sys2txt.audio.subprocess.Popen")
+    @patch("sys2txt.audio.time.sleep")
+    def test_backlog_is_kept_when_no_maximum_lag_is_given(self, _sleep, mock_popen, _which):
+        """Without a cap, a backlog is handed over in full however far behind it is."""
+        mock_popen.return_value = self._ffmpeg_proc(poll_return=0)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            _write_segments(tmpdir, 5)
+            with patch("sys2txt.audio.tempfile.TemporaryDirectory") as mock_tmpdir:
+                mock_tmpdir.return_value.__enter__.return_value = tmpdir
+                segments = list(iter_audio_segments("test.monitor", 8))
+
+        self.assertEqual([s.index for s in segments], [0, 1, 2, 3, 4])
+
+    @patch("sys2txt.audio.which", return_value="/usr/bin/ffmpeg")
+    @patch("sys2txt.audio.subprocess.Popen")
+    @patch("sys2txt.audio.time.sleep")
+    def test_oldest_segments_are_dropped_to_stay_within_max_lag(self, _sleep, mock_popen, _which):
+        """The newest audio is kept, and the dropped indices are still consumed."""
+        mock_popen.return_value = self._ffmpeg_proc(poll_return=0)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            _write_segments(tmpdir, 5)
+            with patch("sys2txt.audio.tempfile.TemporaryDirectory") as mock_tmpdir:
+                mock_tmpdir.return_value.__enter__.return_value = tmpdir
+                with self.assertLogs("sys2txt.audio", level="WARNING") as logs:
+                    segments = list(iter_audio_segments("test.monitor", 8, max_lag=16))
+            remaining = os.listdir(tmpdir)
+
+        # Indices survive the drop, so index * segment_seconds still lands on the timeline
+        self.assertEqual([s.index for s in segments], [3, 4])
+        self.assertEqual([s.dropped for s in segments], [3, 0])
+        self.assertIn("dropped 3 segment(s), 24s of audio", logs.output[0])
+        # Dropped segments are deleted rather than left filling the temporary directory
+        self.assertEqual(remaining, [])
+
+    @patch("sys2txt.audio.which", return_value="/usr/bin/ffmpeg")
+    @patch("sys2txt.audio.subprocess.Popen")
+    @patch("sys2txt.audio.time.sleep")
+    def test_segment_file_is_removed_once_the_consumer_moves_on(self, _sleep, mock_popen, _which):
+        """The temporary directory holds the backlog, not every segment of the session."""
+        mock_popen.return_value = self._ffmpeg_proc(poll_return=0)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            _write_segments(tmpdir, 2)
+            with patch("sys2txt.audio.tempfile.TemporaryDirectory") as mock_tmpdir:
+                mock_tmpdir.return_value.__enter__.return_value = tmpdir
+                segments = iter_audio_segments("test.monitor", 8)
+                first = next(segments)
+                self.assertTrue(os.path.exists(first.path))
+                next(segments)
+                # Asking for the next segment says the consumer is done with the last one
+                self.assertFalse(os.path.exists(first.path))
+                segments.close()
 
 
 if __name__ == "__main__":
