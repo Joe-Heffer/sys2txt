@@ -6,6 +6,7 @@ import os
 import signal
 import subprocess
 import tempfile
+import threading
 import time
 from dataclasses import dataclass
 from typing import Iterator, List, Optional
@@ -41,6 +42,21 @@ class AudioSegment:
     path: str
     lag: float = 0.0
     dropped: int = 0
+
+
+def _drain_stderr(proc: subprocess.Popen) -> None:
+    """Read ffmpeg's stderr to completion, logging each line.
+
+    ffmpeg's stderr is a pipe with a finite OS buffer; if nothing reads it, ffmpeg blocks on
+    write once that buffer fills and the process wedges without exiting. This runs in its own
+    thread so the pipe is always drained, and stops when it hits EOF (ffmpeg has exited).
+    """
+    if proc.stderr is None:
+        return
+    for line in proc.stderr:
+        text = line.decode("utf-8", errors="replace").rstrip()
+        if text:
+            logger.warning("ffmpeg: %s", text)
 
 
 def _stop_ffmpeg(proc: subprocess.Popen) -> None:
@@ -190,6 +206,7 @@ def iter_audio_segments(
 
         logger.info("Live mode: segmenting every %ds from '%s'.", segment_seconds, source)
         proc = subprocess.Popen(args, stdin=subprocess.PIPE, stderr=subprocess.PIPE)
+        threading.Thread(target=_drain_stderr, args=(proc,), daemon=True).start()
         seen: set[str] = set()
         queue: List[str] = []
         next_index = 0

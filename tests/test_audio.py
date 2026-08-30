@@ -3,6 +3,7 @@
 import os
 import signal
 import tempfile
+import threading
 import unittest
 from itertools import chain, repeat
 from unittest.mock import MagicMock, patch
@@ -87,7 +88,7 @@ def _write_segments(directory, count, size=1024):
 class TestIterAudioSegments(unittest.TestCase):
     """Tests for the iter_audio_segments() generator."""
 
-    def _ffmpeg_proc(self, poll_results=None, poll_return=None):
+    def _ffmpeg_proc(self, poll_results=None, poll_return=None, stderr_lines=()):
         """Build a mock ffmpeg process, whose last poll result repeats for as long as asked."""
         proc = MagicMock()
         if poll_results is not None:
@@ -95,6 +96,7 @@ class TestIterAudioSegments(unittest.TestCase):
         else:
             proc.poll.return_value = poll_return
         proc.stdin = MagicMock()
+        proc.stderr = iter(stderr_lines)
         proc.wait.return_value = None
         return proc
 
@@ -288,6 +290,27 @@ class TestIterAudioSegments(unittest.TestCase):
                 # Asking for the next segment says the consumer is done with the last one
                 self.assertFalse(os.path.exists(first.path))
                 segments.close()
+
+    @patch("sys2txt.audio.which", return_value="/usr/bin/ffmpeg")
+    @patch("sys2txt.audio.subprocess.Popen")
+    @patch("sys2txt.audio.time.sleep")
+    def test_ffmpeg_stderr_is_drained_and_logged(self, _sleep, mock_popen, _which):
+        """ffmpeg's stderr is read in the background and logged, rather than left to fill up."""
+        proc = self._ffmpeg_proc(poll_return=0, stderr_lines=[b"Error: something bad\n"])
+        mock_popen.return_value = proc
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            _write_segments(tmpdir, 1)
+            with patch("sys2txt.audio.tempfile.TemporaryDirectory") as mock_tmpdir:
+                mock_tmpdir.return_value.__enter__.return_value = tmpdir
+                with self.assertLogs("sys2txt.audio", level="WARNING") as logs:
+                    list(iter_audio_segments("test.monitor", 8))
+                    # The drainer runs on its own thread; give it a moment to log.
+                    for thread in threading.enumerate():
+                        if thread is not threading.current_thread() and thread.daemon:
+                            thread.join(timeout=1)
+
+        self.assertTrue(any("ffmpeg: Error: something bad" in line for line in logs.output))
 
 
 if __name__ == "__main__":
