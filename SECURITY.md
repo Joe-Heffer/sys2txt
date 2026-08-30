@@ -52,7 +52,10 @@ sys2txt records system audio, which may capture sensitive information:
 
 The tool uses system commands (`ffmpeg`, `pactl`):
 
-- **Source Names**: PulseAudio source names are passed to `ffmpeg` - only use trusted source names
+- **Source Names**: PulseAudio source names are passed to `ffmpeg` as separate process arguments
+  (never through a shell), so this is argument injection risk rather than shell injection. sys2txt
+  does not validate `--source` itself; only pass source names you trust, such as those returned by
+  `--list-sources`
 - **File Paths**: User-provided file paths are used in system commands - validate paths before use
 - **Environment**: Run the tool in a controlled environment if processing untrusted input
 
