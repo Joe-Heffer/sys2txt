@@ -45,6 +45,8 @@ class Options:
     input_path: Optional[str] = None
     segment_seconds: int = DEFAULT_SEGMENT_SECONDS
     silence_timeout: int = 0
+    max_lag: float = 0.0
+    on_lag: str = "drop"
     output_format: str = DEFAULT_OUTPUT_FORMAT
 
 
@@ -93,6 +95,8 @@ def _build_options(args: argparse.Namespace) -> Options:
     duration = getattr(args, "duration", None)
     segment_seconds = getattr(args, "segment_seconds", DEFAULT_SEGMENT_SECONDS)
     silence_timeout = getattr(args, "silence_timeout", 0)
+    max_lag = getattr(args, "max_lag", 0.0)
+    on_lag = getattr(args, "on_lag", None)
 
     if input_path and not os.path.isfile(input_path):
         raise ValueError(f"--input file not found: {input_path}")
@@ -107,6 +111,15 @@ def _build_options(args: argparse.Namespace) -> Options:
             f"--silence-timeout ({silence_timeout}s) must be at least --segment-seconds "
             f"({segment_seconds}s), since silence is only measured a whole segment at a time"
         )
+    if max_lag < 0:
+        raise ValueError(f"--max-lag must not be negative, got {max_lag}")
+    if 0 < max_lag < segment_seconds:
+        raise ValueError(
+            f"--max-lag ({max_lag:g}s) must be at least --segment-seconds ({segment_seconds}s), "
+            "since the backlog is only measured a whole segment at a time"
+        )
+    if on_lag is not None and max_lag <= 0:
+        raise ValueError(f"--on-lag {on_lag} needs a --max-lag to say how far behind is too far")
 
     output_format = getattr(args, "output_format", DEFAULT_OUTPUT_FORMAT)
     if args.timestamps and output_format in TIMED_FORMATS:
@@ -134,6 +147,8 @@ def _build_options(args: argparse.Namespace) -> Options:
         input_path=input_path,
         segment_seconds=segment_seconds,
         silence_timeout=silence_timeout,
+        max_lag=max_lag,
+        on_lag=on_lag or "drop",
         output_format=output_format,
     )
 
@@ -289,6 +304,25 @@ def _build_parser() -> argparse.ArgumentParser:
         default=0,
         help="Auto-stop after N consecutive seconds of silence (0=disabled, default: 0)",
     )
+    live.add_argument(
+        "--max-lag",
+        type=float,
+        default=0.0,
+        metavar="SECONDS",
+        help=(
+            "Seconds of untranscribed audio to tolerate before --on-lag applies "
+            "(0=unlimited, default: 0). Falling behind is always warned about"
+        ),
+    )
+    live.add_argument(
+        "--on-lag",
+        choices=["drop", "fail"],
+        default=None,
+        help=(
+            "What to do once the backlog exceeds --max-lag: drop the oldest segments to catch "
+            "up, or stop with an error (default: drop). Requires --max-lag"
+        ),
+    )
 
     return parser
 
@@ -367,7 +401,9 @@ def _run_live(options: Options, source: str) -> None:
         None if options.output_format == "txt" else get_formatter(options.output_format, language=options.language)
     )
 
-    segments = transcribe_live(source, config, segment_seconds=options.segment_seconds)
+    # Only the drop policy is the recorder's business; failing is a decision about the run.
+    max_lag = options.max_lag if options.on_lag == "drop" else 0.0
+    segments = transcribe_live(source, config, segment_seconds=options.segment_seconds, max_lag=max_lag)
     silence_start: Optional[float] = None
     failures = 0
     failure: Optional[str] = None
@@ -385,6 +421,18 @@ def _run_live(options: Options, source: str) -> None:
                     else:
                         for cue in segment.cues:
                             _emit(formatter.cue(cue), handle)
+
+                    if segment.dropped:
+                        # Dropped audio says nothing about what was said in it, so it neither
+                        # counts as speech nor accumulates towards the silence timeout.
+                        silence_start = None
+
+                    if options.on_lag == "fail" and 0 < options.max_lag < segment.lag:
+                        failure = (
+                            f"Transcription fell {segment.lag:.0f}s behind, past the "
+                            f"--max-lag of {options.max_lag:g}s, stopping."
+                        )
+                        break
 
                     if segment.failed:
                         # A failure says nothing about what the segment held, so it neither

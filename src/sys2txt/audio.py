@@ -1,5 +1,6 @@
 """Audio recording functionality using ffmpeg and PulseAudio/PipeWire."""
 
+import contextlib
 import logging
 import os
 import signal
@@ -28,12 +29,18 @@ class AudioSegment:
 
     Attributes:
         index: Position of the segment in the recording, counting from 0
-        path: Path to the segment's WAV file. It lives in a temporary directory that is
-            removed once the producing generator is closed, so copy it if you need it later.
+        path: Path to the segment's WAV file. It is removed as soon as the consumer asks for
+            the next segment, so copy it if you need it later.
+        lag: Seconds of finalized audio recorded but not yet handed out, queued behind this
+            segment. Zero while transcription keeps up with recording.
+        dropped: Segments discarded immediately before this one to catch up, so a consumer can
+            see the hole. Always 0 unless ``max_lag`` is set.
     """
 
     index: int
     path: str
+    lag: float = 0.0
+    dropped: int = 0
 
 
 def _stop_ffmpeg(proc: subprocess.Popen) -> None:
@@ -116,12 +123,19 @@ def _segment_files(directory: str) -> List[str]:
     return sorted(f for f in os.listdir(directory) if f.startswith("seg_") and f.endswith(".wav"))
 
 
+def _discard(path: str) -> None:
+    """Remove a segment file we are done with, ignoring one that has already gone."""
+    with contextlib.suppress(OSError):
+        os.remove(path)
+
+
 def iter_audio_segments(
     source: str,
     segment_seconds: int = DEFAULT_SEGMENT_SECONDS,
     *,
     sample_rate: int = SAMPLE_RATE,
     channels: int = CHANNELS,
+    max_lag: float = 0.0,
 ) -> Iterator[AudioSegment]:
     """Record continuously and yield each segment of audio as ffmpeg finalizes it.
 
@@ -129,18 +143,27 @@ def iter_audio_segments(
     generator, or letting it be garbage collected shuts ffmpeg down gracefully and removes the
     temporary directory holding the segments.
 
+    ffmpeg finalizes a segment every ``segment_seconds`` whatever the consumer is doing, so a
+    consumer slower than realtime falls behind. Each segment reports how much audio is queued
+    behind it as its ``lag``; ``max_lag`` caps that queue by discarding the oldest segments,
+    trading audio for staying close to live.
+
     Args:
         source: PulseAudio source name
         segment_seconds: Length of each segment in seconds
         sample_rate: Sample rate in Hz
         channels: Number of audio channels
+        max_lag: Seconds of queued audio to tolerate before dropping the oldest segments,
+            or 0 to keep everything however far behind the consumer falls
 
     Yields:
         AudioSegment values in chronological order. Segment files that hold no audio are
-        skipped, but their index is still consumed so an index always maps to the same
-        position on the recording's timeline.
+        skipped, and dropped ones are never yielded, but their indices are still consumed so an
+        index always maps to the same position on the recording's timeline.
     """
     ffmpeg = which("ffmpeg")
+    # Keeping fewer than one segment would drop every segment as soon as it was finalized
+    keep = max(1, int(max_lag // segment_seconds)) if max_lag > 0 else 0
     with tempfile.TemporaryDirectory(prefix="sys2txt_") as tmp:
         pattern = os.path.join(tmp, "seg_%05d.wav")
         args = [
@@ -168,34 +191,59 @@ def iter_audio_segments(
         logger.info("Live mode: segmenting every %ds from '%s'.", segment_seconds, source)
         proc = subprocess.Popen(args, stdin=subprocess.PIPE, stderr=subprocess.PIPE)
         seen: set[str] = set()
+        queue: List[str] = []
         next_index = 0
-
-        def emit(names):
-            """Yield an AudioSegment for each name not seen before."""
-            nonlocal next_index
-            for name in names:
-                if name in seen:
-                    continue
-                seen.add(name)
-                index = next_index
-                next_index += 1
-                path = os.path.join(tmp, name)
-                if os.path.getsize(path) < MIN_SEGMENT_BYTES:
-                    logger.debug("Segment %s holds no audio, skipping", name)
-                    continue
-                yield AudioSegment(index=index, path=path)
+        dropped = 0
 
         try:
+            # One segment is handed out per pass, so the queue is re-measured, and the drop
+            # policy re-applied, every time the consumer comes back for more.
             while True:
+                # Poll before listing, so a listing taken after ffmpeg exited is complete
+                finished = proc.poll() is not None
                 files = _segment_files(tmp)
-                # While ffmpeg is running, the last file is always the one currently
-                # being written. Only process files that have been finalized, which is
-                # guaranteed when a newer segment exists after them.
-                yield from emit(files[:-1] if len(files) > 1 else [])
+                # While ffmpeg is running, the last file is always the one currently being
+                # written. Only process files that have been finalized, which is guaranteed
+                # when a newer segment exists after them.
+                for name in files if finished else files[:-1]:
+                    if name not in seen:
+                        seen.add(name)
+                        queue.append(name)
 
-                if proc.poll() is not None:
-                    # ffmpeg has exited, so every remaining file is finalized
-                    yield from emit(_segment_files(tmp))
+                if keep and len(queue) > keep:
+                    stale, queue = queue[:-keep], queue[-keep:]
+                    for name in stale:
+                        next_index += 1
+                        dropped += 1
+                        _discard(os.path.join(tmp, name))
+                    logger.warning(
+                        "Transcription is behind: dropped %d segment(s), %ds of audio, to catch up",
+                        len(stale),
+                        len(stale) * segment_seconds,
+                    )
+
+                if queue:
+                    name = queue.pop(0)
+                    index = next_index
+                    next_index += 1
+                    path = os.path.join(tmp, name)
+                    if os.path.getsize(path) < MIN_SEGMENT_BYTES:
+                        logger.debug("Segment %s holds no audio, skipping", name)
+                        _discard(path)
+                        continue
+                    yield AudioSegment(
+                        index=index,
+                        path=path,
+                        lag=len(queue) * float(segment_seconds),
+                        dropped=dropped,
+                    )
+                    dropped = 0
+                    # The consumer has moved on, so the temporary directory holds the backlog
+                    # rather than every segment of the session.
+                    _discard(path)
+                    continue
+
+                if finished:
                     break
                 time.sleep(SEGMENT_POLL_INTERVAL)
         finally:

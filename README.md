@@ -88,8 +88,43 @@ sys2txt live --model small.en --segment-seconds 8
 - `--duration <seconds>` - (once mode) Record fixed duration instead of waiting for Ctrl-C
 - `--segment-seconds <n>` - (live mode) Segment length in seconds (default: 8)
 - `--silence-timeout <seconds>` - (live mode) Stop automatically after N consecutive seconds of silence (0=disabled, default: 0). Segments that fail to transcribe do not count as silence
+- `--max-lag <seconds>` - (live mode) Untranscribed audio to tolerate before `--on-lag` applies
+  (0=unlimited, default: 0). See [Keeping up with real time](#keeping-up-with-real-time)
+- `--on-lag <drop|fail>` - (live mode) What to do once the backlog passes `--max-lag`: drop the oldest
+  audio to catch up, or stop with an error (default: drop). Requires `--max-lag`
 - `--timestamps` - Print timestamps alongside text (plain text only; the timed formats always carry
   their own)
+
+### Keeping up with real time
+
+Recording never waits for transcription. ffmpeg finalizes a segment every `--segment-seconds` whatever
+the transcriber is doing, so a model that takes longer than that per segment — a large model on CPU, a
+busy machine, or a short `--segment-seconds` chosen for latency — falls further behind every segment,
+and "live" output quietly stops being live.
+
+Live mode measures that backlog and warns once it is more than a couple of segments deep:
+
+```
+WARNING: Transcription is not keeping up: 32s of audio (4 segments) waiting to be transcribed
+```
+
+By default nothing is discarded: the backlog is transcribed in full, just late. To bound it, set a
+tolerance and a policy:
+
+```bash
+# stay close to live, discarding the oldest audio when more than 30s is queued
+sys2txt live --model medium --segment-seconds 5 --max-lag 30
+
+# or refuse to run behind: save what was transcribed and exit non-zero
+sys2txt live --model medium --segment-seconds 5 --max-lag 30 --on-lag fail
+```
+
+`drop` keeps the newest audio, so the transcript has a hole where the dropped segments were. Timestamps
+stay true to the recording, so a gap in them is exactly that hole. Dropped audio is never counted as
+silence by `--silence-timeout`, since nobody transcribed it.
+
+Segment files are removed as soon as they have been transcribed, so the temporary directory holds the
+backlog rather than the whole session either way.
 
 ### Output formats
 
@@ -131,6 +166,12 @@ Produce subtitles for a recording, ready to drop next to a video:
 ```bash
 sys2txt once --input talk.wav --format srt --output talk.srt
 sys2txt once --input talk.wav --format vtt --output talk.vtt
+```
+
+Keep a slow model close to live, dropping audio rather than falling more than a minute behind:
+
+```bash
+sys2txt live --model medium --segment-seconds 5 --max-lag 60
 ```
 
 Capture a meeting live as WebVTT, stopping after 30 seconds of silence:
@@ -210,10 +251,21 @@ the failure (`segment.failed` is `True`) and a warning in the log, so a failure 
 and is never mistaken for silence. A segment that times out does not hold up the ones after it: its
 worker is abandoned and the next segment is transcribed on a fresh one.
 
-To handle the audio yourself, `iter_audio_segments()` yields `AudioSegment(index, path)` values without
-transcribing them, and `transcribe_file(path, config)` transcribes any audio file. Nothing in the library
-prints or writes files, and every module logs through the standard `logging` module under the `sys2txt`
-logger.
+Each segment also reports how far behind recording it is. `segment.lag` is the seconds of audio still
+waiting to be transcribed — zero while you keep up — and `segment.dropped` counts segments discarded
+just before it. Pass `max_lag=` to cap the backlog by dropping the oldest audio:
+
+```python
+for segment in transcribe_live(source, config, segment_seconds=8, max_lag=30):
+    if segment.dropped:
+        print(f"... {segment.dropped} segment(s) of audio dropped ...")
+```
+
+To handle the audio yourself, `iter_audio_segments()` yields `AudioSegment(index, path, lag, dropped)`
+values without transcribing them, and `transcribe_file(path, config)` transcribes any audio file. A
+segment's file is removed as soon as you ask for the next one, so copy it if you need it later. Nothing
+in the library prints or writes files, and every module logs through the standard `logging` module under
+the `sys2txt` logger.
 
 For timed output, use the `_cues` variants and render them yourself. They return a `Transcript` of
 `Cue(start, end, text)` values plus the detected language, which `render_transcript()` turns into any

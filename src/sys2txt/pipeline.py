@@ -13,6 +13,7 @@ from .audio import iter_audio_segments, record_once
 from .constants import (
     CHANNELS,
     DEFAULT_SEGMENT_SECONDS,
+    LAG_WARN_FACTOR,
     MIN_TRANSCRIBE_TIMEOUT,
     SAMPLE_RATE,
     TRANSCRIBE_TIMEOUT_FACTOR,
@@ -37,6 +38,10 @@ class TranscriptSegment:
             Empty when the segment held no speech or transcription failed.
         error: Why transcription failed, or None when it succeeded. Silence and failure both
             leave ``text`` empty, so this is what tells them apart.
+        lag: Seconds of recorded audio waiting to be transcribed behind this segment. Zero
+            while transcription keeps up with recording.
+        dropped: Segments discarded immediately before this one to catch up, leaving a hole in
+            the transcript. Always 0 unless ``max_lag`` is set.
     """
 
     index: int
@@ -45,6 +50,8 @@ class TranscriptSegment:
     end: float
     cues: Tuple[Cue, ...] = ()
     error: Optional[str] = None
+    lag: float = 0.0
+    dropped: int = 0
 
     @property
     def failed(self) -> bool:
@@ -62,6 +69,25 @@ def _new_executor() -> ThreadPoolExecutor:
     return ThreadPoolExecutor(max_workers=1)
 
 
+def _warn_lag(lag: float, segment_seconds: int, warned_at: float) -> float:
+    """Warn that transcription is falling behind, and return the lag last warned about.
+
+    Recording carries on at its own pace, so a consumer slower than realtime falls further
+    behind every segment. Warn once the backlog is worth noticing, then only as it grows by
+    another segment, so a slow run reports its drift without filling the log.
+    """
+    if lag <= LAG_WARN_FACTOR * segment_seconds:
+        return 0.0
+    if lag < warned_at + segment_seconds:
+        return warned_at
+    logger.warning(
+        "Transcription is not keeping up: %.0fs of audio (%d segments) waiting to be transcribed",
+        lag,
+        round(lag / segment_seconds),
+    )
+    return lag
+
+
 def transcribe_live(
     source: str,
     config: TranscriptionConfig,
@@ -69,6 +95,7 @@ def transcribe_live(
     segment_seconds: int = DEFAULT_SEGMENT_SECONDS,
     sample_rate: int = SAMPLE_RATE,
     channels: int = CHANNELS,
+    max_lag: float = 0.0,
 ) -> Iterator[TranscriptSegment]:
     """Record continuously and yield the transcript of each segment as it becomes available.
 
@@ -82,18 +109,23 @@ def transcribe_live(
         segment_seconds: Length of each segment in seconds
         sample_rate: Sample rate in Hz
         channels: Number of audio channels
+        max_lag: Seconds of untranscribed audio to tolerate before dropping the oldest
+            segments, or 0 to keep everything however far behind transcription falls
 
     Yields:
         TranscriptSegment values in chronological order. A segment whose transcription times
         out or fails is yielded with empty text, an ``error`` describing the failure, and a
-        warning in the log.
+        warning in the log. Each segment reports how far transcription is behind as its
+        ``lag``, which is warned about in the log as it grows.
     """
     timeout = _segment_timeout(segment_seconds)
-    segments = iter_audio_segments(source, segment_seconds, sample_rate=sample_rate, channels=channels)
+    segments = iter_audio_segments(source, segment_seconds, sample_rate=sample_rate, channels=channels, max_lag=max_lag)
     executor = _new_executor()
+    warned_at = 0.0
     try:
         with contextlib.closing(segments):
             for segment in segments:
+                warned_at = _warn_lag(segment.lag, segment_seconds, warned_at)
                 future = executor.submit(transcribe_file_cues, segment.path, config)
                 error = None
                 try:
@@ -122,6 +154,8 @@ def transcribe_live(
                     end=float(start + segment_seconds),
                     cues=cues,
                     error=error,
+                    lag=segment.lag,
+                    dropped=segment.dropped,
                 )
     finally:
         executor.shutdown(wait=False)

@@ -7,7 +7,6 @@ from unittest.mock import MagicMock, patch
 from sys2txt.audio import AudioSegment
 from sys2txt.formats import Cue, Transcript
 from sys2txt.pipeline import (
-    TranscriptSegment,
     _segment_timeout,
     transcribe_live,
     transcribe_once,
@@ -16,10 +15,15 @@ from sys2txt.pipeline import (
 from sys2txt.transcribe import TranscriptionConfig
 
 
-def make_segments(count, start=0):
+def make_segments(count, start=0, lags=(), dropped=()):
     """Yield AudioSegment values the way iter_audio_segments does."""
-    for i in range(start, start + count):
-        yield AudioSegment(index=i, path=f"/tmp/seg_{i:05d}.wav")
+    for offset, i in enumerate(range(start, start + count)):
+        yield AudioSegment(
+            index=i,
+            path=f"/tmp/seg_{i:05d}.wav",
+            lag=lags[offset] if offset < len(lags) else 0.0,
+            dropped=dropped[offset] if offset < len(dropped) else 0,
+        )
 
 
 def spoken(text, start=0.0, end=1.0):
@@ -68,7 +72,7 @@ class TestTranscribeLive(unittest.TestCase):
 
         self.assertEqual([s.text for s in segments], ["hello", "world"])
         self.assertEqual([(s.index, s.start, s.end) for s in segments], [(0, 0.0, 8.0), (1, 8.0, 16.0)])
-        mock_iter.assert_called_once_with("test.monitor", 8, sample_rate=16000, channels=1)
+        mock_iter.assert_called_once_with("test.monitor", 8, sample_rate=16000, channels=1, max_lag=0.0)
         self.assertEqual(mock_transcribe.call_args_list[0][0], ("/tmp/seg_00000.wav", self.config))
 
     @patch("sys2txt.pipeline.transcribe_file_cues")
@@ -191,6 +195,67 @@ class TestTranscribeLive(unittest.TestCase):
         list(transcribe_live("test.monitor", self.config, segment_seconds=8))
 
         self.assertTrue(source.closed)
+
+
+class TestLiveBackpressure(unittest.TestCase):
+    """Tests for reporting and capping how far transcription falls behind recording."""
+
+    def setUp(self):
+        self.config = TranscriptionConfig(model="tiny")
+
+    @patch("sys2txt.pipeline.transcribe_file_cues", return_value=spoken("hello"))
+    @patch("sys2txt.pipeline.iter_audio_segments")
+    def test_max_lag_is_passed_to_the_recorder(self, mock_iter, _transcribe):
+        """Dropping happens where the backlog is, so the cap is handed to the audio source."""
+        mock_iter.return_value = make_segments(1)
+
+        list(transcribe_live("test.monitor", self.config, segment_seconds=8, max_lag=24))
+
+        self.assertEqual(mock_iter.call_args[1]["max_lag"], 24)
+
+    @patch("sys2txt.pipeline.transcribe_file_cues", return_value=spoken("hello"))
+    @patch("sys2txt.pipeline.iter_audio_segments")
+    def test_lag_and_drops_reach_the_transcript_segment(self, mock_iter, _transcribe):
+        """A consumer can see how far behind it is and where audio was dropped."""
+        mock_iter.return_value = make_segments(2, lags=(8.0, 0.0), dropped=(3, 0))
+
+        segments = list(transcribe_live("test.monitor", self.config, segment_seconds=8))
+
+        self.assertEqual([(s.lag, s.dropped) for s in segments], [(8.0, 3), (0.0, 0)])
+
+    @patch("sys2txt.pipeline.transcribe_file_cues", return_value=spoken("hello"))
+    @patch("sys2txt.pipeline.iter_audio_segments")
+    def test_no_warning_while_transcription_keeps_up(self, mock_iter, _transcribe):
+        """A backlog within the tolerated margin is not worth telling the user about."""
+        mock_iter.return_value = make_segments(2, lags=(8.0, 16.0))
+
+        with self.assertNoLogs("sys2txt.pipeline", level="WARNING"):
+            list(transcribe_live("test.monitor", self.config, segment_seconds=8))
+
+    @patch("sys2txt.pipeline.transcribe_file_cues", return_value=spoken("hello"))
+    @patch("sys2txt.pipeline.iter_audio_segments")
+    def test_warns_once_and_then_only_as_the_backlog_grows(self, mock_iter, _transcribe):
+        """A slow run reports its drift without a warning on every single segment."""
+        # Over the threshold, flat, one segment further behind, then caught up again
+        mock_iter.return_value = make_segments(5, lags=(24.0, 24.0, 32.0, 0.0, 0.0))
+
+        with self.assertLogs("sys2txt.pipeline", level="WARNING") as logs:
+            list(transcribe_live("test.monitor", self.config, segment_seconds=8))
+
+        self.assertEqual(len(logs.output), 2)
+        self.assertIn("24s of audio (3 segments)", logs.output[0])
+        self.assertIn("32s of audio (4 segments)", logs.output[1])
+
+    @patch("sys2txt.pipeline.transcribe_file_cues", return_value=spoken("hello"))
+    @patch("sys2txt.pipeline.iter_audio_segments")
+    def test_warns_again_after_catching_up(self, mock_iter, _transcribe):
+        """Falling behind a second time is news, even if it is no worse than the first time."""
+        mock_iter.return_value = make_segments(3, lags=(24.0, 0.0, 24.0))
+
+        with self.assertLogs("sys2txt.pipeline", level="WARNING") as logs:
+            list(transcribe_live("test.monitor", self.config, segment_seconds=8))
+
+        self.assertEqual(len(logs.output), 2)
 
 
 class TestTranscribeOnce(unittest.TestCase):
