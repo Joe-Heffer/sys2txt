@@ -212,6 +212,29 @@ class TestBuildOptions(unittest.TestCase):
             _build_options(args)
         self.assertEqual(len(logs.output), 2)
 
+    def test_warns_that_vulkan_device_falls_back_to_cpu_on_non_cpp_engine(self):
+        args = make_args(engine="faster", device="vulkan")
+        with self.assertLogs("sys2txt.__main__", level="WARNING") as logs:
+            _build_options(args)
+        self.assertIn("--device vulkan", logs.output[0])
+
+    def test_warns_that_gpu_device_falls_back_to_cpu_on_auto_engine(self):
+        args = make_args(engine="auto", device="gpu")
+        with self.assertLogs("sys2txt.__main__", level="WARNING") as logs:
+            _build_options(args)
+        self.assertIn("--device gpu", logs.output[0])
+
+    def test_no_warning_for_vulkan_device_with_cpp_engine(self):
+        with self.assertRaises(AssertionError):
+            with self.assertLogs("sys2txt.__main__", level="WARNING"):
+                _build_options(make_args(engine="cpp", device="vulkan"))
+
+    def test_warns_that_cuda_device_is_not_a_whisper_cpp_device(self):
+        args = make_args(engine="cpp", device="cuda")
+        with self.assertLogs("sys2txt.__main__", level="WARNING") as logs:
+            _build_options(args)
+        self.assertIn("--device cuda", logs.output[0])
+
 
 class TestBuildTranscriptionConfig(unittest.TestCase):
     def test_returns_config_with_correct_values(self):
