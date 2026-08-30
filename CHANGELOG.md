@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.6.0](https://github.com/Joe-Heffer/sys2txt/compare/v0.5.4...v0.6.0) (2026-08-30)
+
+
+### Features
+
+* add a public library API and make live capture a generator ([#73](https://github.com/Joe-Heffer/sys2txt/issues/73)) ([038e4c7](https://github.com/Joe-Heffer/sys2txt/commit/038e4c706f611bda8c82f36627a155af57d50c3c)), closes [#62](https://github.com/Joe-Heffer/sys2txt/issues/62)
+* add SRT, WebVTT, JSON and TSV transcript output formats ([#76](https://github.com/Joe-Heffer/sys2txt/issues/76)) ([89c9425](https://github.com/Joe-Heffer/sys2txt/commit/89c9425a6484667491cab4d47bc3d7ef1b799499))
+* report and cap how far live transcription falls behind recording ([#79](https://github.com/Joe-Heffer/sys2txt/issues/79)) ([89b97e6](https://github.com/Joe-Heffer/sys2txt/commit/89b97e63a59425e8af2c97cead69407cf786ca98)), closes [#66](https://github.com/Joe-Heffer/sys2txt/issues/66)
+
+
+### Bug Fixes
+
+* tell transcription failures apart from silence in live mode ([#75](https://github.com/Joe-Heffer/sys2txt/issues/75)) ([0860cbb](https://github.com/Joe-Heffer/sys2txt/commit/0860cbb04d53dfd66904710eaa064d80d2e5fe61)), closes [#53](https://github.com/Joe-Heffer/sys2txt/issues/53)
+
+
+### Documentation
+
+* remove duplicate changelog entries ([0f71e3f](https://github.com/Joe-Heffer/sys2txt/commit/0f71e3f4f146544fd0cccf5b3614c5fd1179ff1c))
+* simplify security policy, remove outdated version table and email contact ([154a236](https://github.com/Joe-Heffer/sys2txt/commit/154a23686547e64855168d7f9df24e00933d766d))
+
 ## [0.5.4](https://github.com/Joe-Heffer/sys2txt/compare/v0.5.3...v0.5.4) (2026-08-27)
 
 
