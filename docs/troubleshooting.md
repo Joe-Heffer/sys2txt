@@ -8,6 +8,23 @@
 - `SYS2TXT_DEVICE`/`--device` apply to openai-whisper too, which needs a CUDA-capable PyTorch build for `cuda`.
 - For AMD GPUs, use whisper.cpp with Vulkan support (see [Engines & devices](engines-and-devices.md#amd-gpu-vulkan)).
 
+## Reporting bugs
+
+Found a bug? Please [open an issue](https://github.com/Joe-Heffer/sys2txt/issues/new) on GitHub.
+
+To help us fix it quickly, include:
+
+- The `sys2txt` version (`sys2txt --version`) and how you installed it
+- Your OS/distro and whether you're using PulseAudio or PipeWire
+- The full command you ran, including flags
+- The complete error message or traceback, ideally with `--verbose`/`-v` for debug logging
+- What you expected to happen versus what actually happened
+- Steps to reproduce, if you can find them
+
+For anything that looks like a security vulnerability, please follow the process in
+[SECURITY.md](https://github.com/Joe-Heffer/sys2txt/blob/main/SECURITY.md) instead of filing a
+public issue.
+
 ## Contributing
 
 Contributions are welcome! Please see [CONTRIBUTING.md](https://github.com/Joe-Heffer/sys2txt/blob/main/CONTRIBUTING.md) for:
