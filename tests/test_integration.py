@@ -21,7 +21,7 @@ from unittest.mock import patch
 
 from sys2txt.audio import record_once
 from sys2txt.formats import Cue, Transcript
-from sys2txt.pulse import get_default_monitor_source
+from sys2txt.pulse import get_default_monitor_source, run_command
 
 FFMPEG_AVAILABLE = shutil.which("ffmpeg") is not None
 
@@ -131,8 +131,16 @@ class TestCliOverARealWavFile(unittest.TestCase):
 
 
 def _real_pulse_default_source():
-    """The default monitor source, or None if PulseAudio isn't actually reachable here."""
+    """The default monitor source, or None if PulseAudio isn't actually reachable here.
+
+    `get_default_monitor_source()` falls back to the literal string "default" whenever pactl
+    can't be reached at all (no PulseAudio/PipeWire server, as on most CI runners), so a truthy
+    return there does not mean a real server is up. Check reachability directly instead.
+    """
     try:
+        code, _, _ = run_command(["pactl", "info"])
+        if code != 0:
+            return None
         return get_default_monitor_source()
     except Exception:
         return None
