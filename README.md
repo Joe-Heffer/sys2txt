@@ -6,7 +6,7 @@
 
 Record system audio and automatically transcribe to text using ✨AI✨.
 
-**Full documentation:** [oe-Heffer.github.io/sys2txt/](https://Joe-Heffer.github.io/sys2txt/)
+**Full documentation:** [Joe-Heffer.github.io/sys2txt/](https://joe-heffer.github.io/sys2txt/)
 
 🐞 Submit a **[bug report](https://github.com/Joe-Heffer/sys2txt/issues/new?template=bug_report.yml)**.
 
