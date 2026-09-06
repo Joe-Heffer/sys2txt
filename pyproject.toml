@@ -11,6 +11,18 @@ readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
 authors = [{ name = "Joe Heffer", email = "jheffer@gmail.com" }]
+keywords = [
+    "whisper",
+    "speech-to-text",
+    "transcription",
+    "pulseaudio",
+    "pipewire",
+    "audio",
+    "cli",
+    "linux",
+    "faster-whisper",
+    "whisper.cpp",
+]
 dependencies = []
 classifiers = [
     "Development Status :: 4 - Beta",
