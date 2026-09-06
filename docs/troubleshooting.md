@@ -10,9 +10,8 @@
 
 ## Reporting bugs
 
-Found a bug? Please [open an issue](https://github.com/Joe-Heffer/sys2txt/issues/new) on GitHub.
-
-To help us fix it quickly, include:
+Found a bug? Please [open an issue](https://github.com/Joe-Heffer/sys2txt/issues/new/choose) on
+GitHub using the bug report template, which will prompt you for:
 
 - The `sys2txt` version (`sys2txt --version`) and how you installed it
 - Your OS/distro and whether you're using PulseAudio or PipeWire
