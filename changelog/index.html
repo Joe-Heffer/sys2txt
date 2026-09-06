@@ -1,0 +1,819 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Record system audio and transcribe to text using AI">
+      
+      
+      
+        <link rel="canonical" href="https://Joe-Heffer.github.io/sys2txt/changelog/">
+      
+      
+        <link rel="prev" href="../troubleshooting/">
+      
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>Changelog - sys2txt</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.ec1eaa64.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#changelog" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="sys2txt" class="md-header__button md-logo" aria-label="sys2txt" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            sys2txt
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Changelog
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/Joe-Heffer/sys2txt" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    Joe-Heffer/sys2txt
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="sys2txt" class="md-nav__button md-logo" aria-label="sys2txt" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    sys2txt
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/Joe-Heffer/sys2txt" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    Joe-Heffer/sys2txt
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Installation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../quick-start/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quick start
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../cli-reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CLI reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../engines-and-devices/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Engines & devices
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../live-mode/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Live mode
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../output-formats/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Output formats
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../examples/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Examples
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../python-api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Python API
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../troubleshooting/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Troubleshooting
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Changelog
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="changelog">Changelog<a class="headerlink" href="#changelog" title="Permanent link">&para;</a></h1>
+<h1 id="changelog_1">Changelog<a class="headerlink" href="#changelog_1" title="Permanent link">&para;</a></h1>
+<h2 id="070-2026-09-06"><a href="https://github.com/Joe-Heffer/sys2txt/compare/v0.6.1...v0.7.0">0.7.0</a> (2026-09-06)<a class="headerlink" href="#070-2026-09-06" title="Permanent link">&para;</a></h2>
+<h3 id="features">Features<a class="headerlink" href="#features" title="Permanent link">&para;</a></h3>
+<ul>
+<li>auto-download missing whisper.cpp models (<a href="https://github.com/Joe-Heffer/sys2txt/issues/99">#99</a>) (<a href="https://github.com/Joe-Heffer/sys2txt/commit/f0d98eab024884933faf8013f6e279d54692450c">f0d98ea</a>), closes <a href="https://github.com/Joe-Heffer/sys2txt/issues/71">#71</a></li>
+</ul>
+<h3 id="bug-fixes">Bug Fixes<a class="headerlink" href="#bug-fixes" title="Permanent link">&para;</a></h3>
+<ul>
+<li>stop auto-writing to ./output/, follow Unix stdout-default norm (<a href="https://github.com/Joe-Heffer/sys2txt/issues/108">#108</a>) (<a href="https://github.com/Joe-Heffer/sys2txt/commit/9219f2abf2f68cf4b1a678e1c7ee639155c2ed61">9219f2a</a>)</li>
+<li>whisper.cpp engine parses -oj JSON instead of scraping console output (<a href="https://github.com/Joe-Heffer/sys2txt/issues/97">#97</a>) (<a href="https://github.com/Joe-Heffer/sys2txt/commit/67e6acd629b5aa2f5f8aa12d9a9de426f1523d05">67e6acd</a>)</li>
+</ul>
+<h2 id="061-2026-08-30"><a href="https://github.com/Joe-Heffer/sys2txt/compare/v0.6.0...v0.6.1">0.6.1</a> (2026-08-30)<a class="headerlink" href="#061-2026-08-30" title="Permanent link">&para;</a></h2>
+<h3 id="bug-fixes_1">Bug Fixes<a class="headerlink" href="#bug-fixes_1" title="Permanent link">&para;</a></h3>
+<ul>
+<li>bound ffmpeg shutdown and stop live transcription racing temp-dir cleanup (<a href="https://github.com/Joe-Heffer/sys2txt/issues/88">#88</a>) (<a href="https://github.com/Joe-Heffer/sys2txt/commit/0d06b07592a1dc295a8cd7ebf456f15361bc9f0f">0d06b07</a>), closes <a href="https://github.com/Joe-Heffer/sys2txt/issues/55">#55</a></li>
+<li>correct logging config precedence, record mutation, and unprefixed env vars (<a href="https://github.com/Joe-Heffer/sys2txt/issues/59">#59</a>) (<a href="https://github.com/Joe-Heffer/sys2txt/issues/94">#94</a>) (<a href="https://github.com/Joe-Heffer/sys2txt/commit/be6595b2963e69f2e0f43d011abf964da0611bda">be6595b</a>)</li>
+<li>drain ffmpeg's stderr in live mode to prevent deadlock (<a href="https://github.com/Joe-Heffer/sys2txt/issues/85">#85</a>) (<a href="https://github.com/Joe-Heffer/sys2txt/commit/d6190f4efda9f65c12c4de3720cb80e8ce370751">d6190f4</a>), closes <a href="https://github.com/Joe-Heffer/sys2txt/issues/52">#52</a></li>
+<li>drop dead RuntimeError clause and avoid double pactl call in pulse.py (<a href="https://github.com/Joe-Heffer/sys2txt/issues/96">#96</a>) (<a href="https://github.com/Joe-Heffer/sys2txt/commit/86156e31a50829a92af56db31f79ade9d042fd2f">86156e3</a>), closes <a href="https://github.com/Joe-Heffer/sys2txt/issues/61">#61</a></li>
+<li>gate publishing on tests and stop dropping releases via path filters (<a href="https://github.com/Joe-Heffer/sys2txt/issues/92">#92</a>) (<a href="https://github.com/Joe-Heffer/sys2txt/commit/9a652433a14c6d20767869917eaabf1d6fcabe26">9a65243</a>), closes <a href="https://github.com/Joe-Heffer/sys2txt/issues/57">#57</a></li>
+<li>only create output/ directory when it will actually be used (<a href="https://github.com/Joe-Heffer/sys2txt/issues/95">#95</a>) (<a href="https://github.com/Joe-Heffer/sys2txt/commit/6ef7a1ee2a4929c81be74ad42c7caf379d9acb4d">6ef7a1e</a>), closes <a href="https://github.com/Joe-Heffer/sys2txt/issues/60">#60</a></li>
+<li>raise on ffmpeg failure in record_once instead of discarding it (<a href="https://github.com/Joe-Heffer/sys2txt/issues/87">#87</a>) (<a href="https://github.com/Joe-Heffer/sys2txt/commit/08e1cd08480c18d882669b6e972c3cc32cfe84fe">08e1cd0</a>), closes <a href="https://github.com/Joe-Heffer/sys2txt/issues/54">#54</a></li>
+<li>validate --output path is writable before recording or transcription (<a href="https://github.com/Joe-Heffer/sys2txt/issues/56">#56</a>) (<a href="https://github.com/Joe-Heffer/sys2txt/issues/90">#90</a>) (<a href="https://github.com/Joe-Heffer/sys2txt/commit/e3b46b20a40595b367e2445261bdad093b270100">e3b46b2</a>)</li>
+<li>warn on --device/--engine combinations that silently fall back to CPU (<a href="https://github.com/Joe-Heffer/sys2txt/issues/58">#58</a>) (<a href="https://github.com/Joe-Heffer/sys2txt/issues/93">#93</a>) (<a href="https://github.com/Joe-Heffer/sys2txt/commit/0d37163902a34a589a6ff380b394c42a1dd4461c">0d37163</a>)</li>
+</ul>
+<h2 id="060-2026-08-30"><a href="https://github.com/Joe-Heffer/sys2txt/compare/v0.5.4...v0.6.0">0.6.0</a> (2026-08-30)<a class="headerlink" href="#060-2026-08-30" title="Permanent link">&para;</a></h2>
+<h3 id="features_1">Features<a class="headerlink" href="#features_1" title="Permanent link">&para;</a></h3>
+<ul>
+<li>add a public library API and make live capture a generator (<a href="https://github.com/Joe-Heffer/sys2txt/issues/73">#73</a>) (<a href="https://github.com/Joe-Heffer/sys2txt/commit/038e4c706f611bda8c82f36627a155af57d50c3c">038e4c7</a>), closes <a href="https://github.com/Joe-Heffer/sys2txt/issues/62">#62</a></li>
+<li>add SRT, WebVTT, JSON and TSV transcript output formats (<a href="https://github.com/Joe-Heffer/sys2txt/issues/76">#76</a>) (<a href="https://github.com/Joe-Heffer/sys2txt/commit/89c9425a6484667491cab4d47bc3d7ef1b799499">89c9425</a>)</li>
+<li>report and cap how far live transcription falls behind recording (<a href="https://github.com/Joe-Heffer/sys2txt/issues/79">#79</a>) (<a href="https://github.com/Joe-Heffer/sys2txt/commit/89b97e63a59425e8af2c97cead69407cf786ca98">89b97e6</a>), closes <a href="https://github.com/Joe-Heffer/sys2txt/issues/66">#66</a></li>
+</ul>
+<h3 id="bug-fixes_2">Bug Fixes<a class="headerlink" href="#bug-fixes_2" title="Permanent link">&para;</a></h3>
+<ul>
+<li>tell transcription failures apart from silence in live mode (<a href="https://github.com/Joe-Heffer/sys2txt/issues/75">#75</a>) (<a href="https://github.com/Joe-Heffer/sys2txt/commit/0860cbb04d53dfd66904710eaa064d80d2e5fe61">0860cbb</a>), closes <a href="https://github.com/Joe-Heffer/sys2txt/issues/53">#53</a></li>
+</ul>
+<h3 id="documentation">Documentation<a class="headerlink" href="#documentation" title="Permanent link">&para;</a></h3>
+<ul>
+<li>remove duplicate changelog entries (<a href="https://github.com/Joe-Heffer/sys2txt/commit/0f71e3f4f146544fd0cccf5b3614c5fd1179ff1c">0f71e3f</a>)</li>
+<li>simplify security policy, remove outdated version table and email contact (<a href="https://github.com/Joe-Heffer/sys2txt/commit/154a23686547e64855168d7f9df24e00933d766d">154a236</a>)</li>
+</ul>
+<h2 id="054-2026-08-27"><a href="https://github.com/Joe-Heffer/sys2txt/compare/v0.5.3...v0.5.4">0.5.4</a> (2026-08-27)<a class="headerlink" href="#054-2026-08-27" title="Permanent link">&para;</a></h2>
+<h3 id="bug-fixes_3">Bug Fixes<a class="headerlink" href="#bug-fixes_3" title="Permanent link">&para;</a></h3>
+<ul>
+<li>handle Ctrl-C gracefully at top level and inform live-mode users (<a href="https://github.com/Joe-Heffer/sys2txt/issues/45">#45</a>) (<a href="https://github.com/Joe-Heffer/sys2txt/commit/262d02734583fad3c659321731cac527a176bfac">262d027</a>)</li>
+</ul>
+<h2 id="053-2026-08-27"><a href="https://github.com/Joe-Heffer/sys2txt/compare/v0.5.2...v0.5.3">0.5.3</a> (2026-08-27)<a class="headerlink" href="#053-2026-08-27" title="Permanent link">&para;</a></h2>
+<h3 id="bug-fixes_4">Bug Fixes<a class="headerlink" href="#bug-fixes_4" title="Permanent link">&para;</a></h3>
+<ul>
+<li>use PAT for release-please to trigger downstream publish workflow (<a href="https://github.com/Joe-Heffer/sys2txt/issues/48">#48</a>) (<a href="https://github.com/Joe-Heffer/sys2txt/commit/01419bd434035bc02060db34323311897e920e2a">01419bd</a>)</li>
+</ul>
+<h2 id="052-2026-08-27"><a href="https://github.com/Joe-Heffer/sys2txt/compare/v0.5.1...v0.5.2">0.5.2</a> (2026-08-27)<a class="headerlink" href="#052-2026-08-27" title="Permanent link">&para;</a></h2>
+<h3 id="bug-fixes_5">Bug Fixes<a class="headerlink" href="#bug-fixes_5" title="Permanent link">&para;</a></h3>
+<ul>
+<li>default log level to WARNING to suppress engine INFO spam (<a href="https://github.com/Joe-Heffer/sys2txt/commit/5268c215373fd1aefb883387ddd7f614b10baa88">5268c21</a>)</li>
+</ul>
+<h2 id="051-2026-07-23"><a href="https://github.com/Joe-Heffer/sys2txt/compare/v0.5.0...v0.5.1">0.5.1</a> (2026-07-23)<a class="headerlink" href="#051-2026-07-23" title="Permanent link">&para;</a></h2>
+<h3 id="bug-fixes_6">Bug Fixes<a class="headerlink" href="#bug-fixes_6" title="Permanent link">&para;</a></h3>
+<ul>
+<li>always request timestamps from whisper-cli to fix empty transcripts (<a href="https://github.com/Joe-Heffer/sys2txt/commit/a3c36e7d5ad1a0933e9cc4dd4970961836bfa5fa">a3c36e7</a>), closes <a href="https://github.com/Joe-Heffer/sys2txt/issues/42">#42</a></li>
+</ul>
+<h2 id="050-2026-06-04"><a href="https://github.com/Joe-Heffer/sys2txt/compare/v0.4.0...v0.5.0">0.5.0</a> (2026-06-04)<a class="headerlink" href="#050-2026-06-04" title="Permanent link">&para;</a></h2>
+<h3 id="features_2">Features<a class="headerlink" href="#features_2" title="Permanent link">&para;</a></h3>
+<ul>
+<li>add --version flag to CLI (<a href="https://github.com/Joe-Heffer/sys2txt/commit/4ac9e20b5d6f046cfe763f675e09359c376278f1">4ac9e20</a>)</li>
+</ul>
+<h2 id="040-2026-04-14"><a href="https://github.com/Joe-Heffer/sys2txt/compare/v0.3.0...v0.4.0">0.4.0</a> (2026-04-14)<a class="headerlink" href="#040-2026-04-14" title="Permanent link">&para;</a></h2>
+<h3 id="features_3">Features<a class="headerlink" href="#features_3" title="Permanent link">&para;</a></h3>
+<ul>
+<li>add ANSI color formatting to log output when stderr is a TTY (<a href="https://github.com/Joe-Heffer/sys2txt/commit/dc763e2b724e38606077c1844601128e789ad737">dc763e2</a>)</li>
+<li>add publish to pypi workflows (<a href="https://github.com/Joe-Heffer/sys2txt/commit/d3c03720abc9f09768e44b43185d49b352f2264d">d3c0372</a>)</li>
+<li>add release-please for automatic version bumping (<a href="https://github.com/Joe-Heffer/sys2txt/commit/3e1345783ba378aab19853aa380d8ee63b065578">3e13457</a>)</li>
+<li>add security policy (<a href="https://github.com/Joe-Heffer/sys2txt/commit/6d48abd7fb9dd596121ed9cd1fdb06bb758daea3">6d48abd</a>)</li>
+<li>always write transcripts to output/ directory (<a href="https://github.com/Joe-Heffer/sys2txt/commit/4c76d52740158caa29ce7ba6bbbaa4582dc541c8">4c76d52</a>)</li>
+<li>auto-stop live mode after a period of silence (<a href="https://github.com/Joe-Heffer/sys2txt/commit/152398da068ca9d273b99002a9ec735851b555a8">152398d</a>)</li>
+<li>make whisper engines optional dependencies (<a href="https://github.com/Joe-Heffer/sys2txt/commit/db6f33c462ee6b1d6fffda996190e2cc55914db1">db6f33c</a>)</li>
+<li>replace print statements with logging (<a href="https://github.com/Joe-Heffer/sys2txt/commit/dba30bc27dc0db0f38c957be908bb5854984596e">dba30bc</a>)</li>
+<li>restrict workflow triggers with path filters (<a href="https://github.com/Joe-Heffer/sys2txt/commit/7756e4e5c0047c7b0f3a453d8f572c7089e96603">7756e4e</a>)</li>
+<li>thread-safe model caching in transcribe.py (<a href="https://github.com/Joe-Heffer/sys2txt/commit/221ccdb81bd8def3c800a3624a377ebab41725dd">221ccdb</a>)</li>
+</ul>
+<h3 id="bug-fixes_7">Bug Fixes<a class="headerlink" href="#bug-fixes_7" title="Permanent link">&para;</a></h3>
+<ul>
+<li>cache whisper models and add transcription timeout to prevent freezing (<a href="https://github.com/Joe-Heffer/sys2txt/commit/0f05e63b19db286d277131fd0b2a90e54bcbce33">0f05e63</a>)</li>
+<li>don't specify model list (<a href="https://github.com/Joe-Heffer/sys2txt/commit/aa34c2233922566fc92ead7fbb0faea5a0d84502">aa34c22</a>)</li>
+<li>prevent freezing on in-progress segments and add whisper.cpp engine (<a href="https://github.com/Joe-Heffer/sys2txt/commit/3df1991afaaca79ecb220bcc73b9ca34b0385262">3df1991</a>)</li>
+<li>replace bare except clauses with specific exception types (<a href="https://github.com/Joe-Heffer/sys2txt/commit/f24cc639192296c5698efd4915823e63a3e452d4">f24cc63</a>)</li>
+<li>use explicit import check for faster-whisper auto-detection (<a href="https://github.com/Joe-Heffer/sys2txt/commit/1b22dab2e0b5b67875576eeb9a58588dea237ab4">1b22dab</a>)</li>
+<li>use pypa/gh-action-pypi-publish (<a href="https://github.com/Joe-Heffer/sys2txt/commit/9f86df4821cae29b6455bda73c11307ee852e97d">9f86df4</a>)</li>
+</ul>
+<h3 id="documentation_1">Documentation<a class="headerlink" href="#documentation_1" title="Permanent link">&para;</a></h3>
+<ul>
+<li>add link to guide (<a href="https://github.com/Joe-Heffer/sys2txt/commit/eaad37c5de1daa25a9330e32c5026af9cb76851f">eaad37c</a>)</li>
+<li>tweak README (<a href="https://github.com/Joe-Heffer/sys2txt/commit/eb8f1b16f32290207898b0633de77501a27d65a6">eb8f1b1</a>)</li>
+<li>Update copyright year in LICENSE file (<a href="https://github.com/Joe-Heffer/sys2txt/commit/151b94fdc9a76ba2ef8c773efe7e99260059b380">151b94f</a>)</li>
+<li>update installation instructions to reference PyPI and remove cd step (<a href="https://github.com/Joe-Heffer/sys2txt/commit/99314eea39b0b043e847b6523549962c666be89f">99314ee</a>)</li>
+<li>Update supported versions in SECURITY.md (<a href="https://github.com/Joe-Heffer/sys2txt/commit/8f150f81eb779a50c0a54b6b4ca6fa9b19ba294c">8f150f8</a>)</li>
+</ul>
+<h2 id="030-2026-04-14"><a href="https://github.com/Joe-Heffer/sys2txt/compare/sys2txt-v0.2.0...sys2txt-v0.3.0">0.3.0</a> (2026-04-14)<a class="headerlink" href="#030-2026-04-14" title="Permanent link">&para;</a></h2>
+<h3 id="features_4">Features<a class="headerlink" href="#features_4" title="Permanent link">&para;</a></h3>
+<ul>
+<li>add ANSI color formatting to log output when stderr is a TTY (<a href="https://github.com/Joe-Heffer/sys2txt/commit/dc763e2b724e38606077c1844601128e789ad737">dc763e2</a>)</li>
+</ul>
+<h2 id="020-2026-04-09"><a href="https://github.com/Joe-Heffer/sys2txt/compare/sys2txt-v0.1.2...sys2txt-v0.2.0">0.2.0</a> (2026-04-09)<a class="headerlink" href="#020-2026-04-09" title="Permanent link">&para;</a></h2>
+<h3 id="features_5">Features<a class="headerlink" href="#features_5" title="Permanent link">&para;</a></h3>
+<ul>
+<li>add publish to pypi workflows (<a href="https://github.com/Joe-Heffer/sys2txt/commit/d3c03720abc9f09768e44b43185d49b352f2264d">d3c0372</a>)</li>
+<li>add release-please for automatic version bumping (<a href="https://github.com/Joe-Heffer/sys2txt/commit/3e1345783ba378aab19853aa380d8ee63b065578">3e13457</a>)</li>
+<li>add security policy (<a href="https://github.com/Joe-Heffer/sys2txt/commit/6d48abd7fb9dd596121ed9cd1fdb06bb758daea3">6d48abd</a>)</li>
+<li>always write transcripts to output/ directory (<a href="https://github.com/Joe-Heffer/sys2txt/commit/4c76d52740158caa29ce7ba6bbbaa4582dc541c8">4c76d52</a>)</li>
+<li>auto-stop live mode after a period of silence (<a href="https://github.com/Joe-Heffer/sys2txt/commit/152398da068ca9d273b99002a9ec735851b555a8">152398d</a>)</li>
+<li>make whisper engines optional dependencies (<a href="https://github.com/Joe-Heffer/sys2txt/commit/db6f33c462ee6b1d6fffda996190e2cc55914db1">db6f33c</a>)</li>
+<li>replace print statements with logging (<a href="https://github.com/Joe-Heffer/sys2txt/commit/dba30bc27dc0db0f38c957be908bb5854984596e">dba30bc</a>)</li>
+<li>restrict workflow triggers with path filters (<a href="https://github.com/Joe-Heffer/sys2txt/commit/7756e4e5c0047c7b0f3a453d8f572c7089e96603">7756e4e</a>)</li>
+<li>thread-safe model caching in transcribe.py (<a href="https://github.com/Joe-Heffer/sys2txt/commit/221ccdb81bd8def3c800a3624a377ebab41725dd">221ccdb</a>)</li>
+</ul>
+<h3 id="bug-fixes_8">Bug Fixes<a class="headerlink" href="#bug-fixes_8" title="Permanent link">&para;</a></h3>
+<ul>
+<li>cache whisper models and add transcription timeout to prevent freezing (<a href="https://github.com/Joe-Heffer/sys2txt/commit/0f05e63b19db286d277131fd0b2a90e54bcbce33">0f05e63</a>)</li>
+<li>don't specify model list (<a href="https://github.com/Joe-Heffer/sys2txt/commit/aa34c2233922566fc92ead7fbb0faea5a0d84502">aa34c22</a>)</li>
+<li>prevent freezing on in-progress segments and add whisper.cpp engine (<a href="https://github.com/Joe-Heffer/sys2txt/commit/3df1991afaaca79ecb220bcc73b9ca34b0385262">3df1991</a>)</li>
+<li>replace bare except clauses with specific exception types (<a href="https://github.com/Joe-Heffer/sys2txt/commit/f24cc639192296c5698efd4915823e63a3e452d4">f24cc63</a>)</li>
+<li>use explicit import check for faster-whisper auto-detection (<a href="https://github.com/Joe-Heffer/sys2txt/commit/1b22dab2e0b5b67875576eeb9a58588dea237ab4">1b22dab</a>)</li>
+<li>use pypa/gh-action-pypi-publish (<a href="https://github.com/Joe-Heffer/sys2txt/commit/9f86df4821cae29b6455bda73c11307ee852e97d">9f86df4</a>)</li>
+</ul>
+<h3 id="documentation_2">Documentation<a class="headerlink" href="#documentation_2" title="Permanent link">&para;</a></h3>
+<ul>
+<li>add link to guide (<a href="https://github.com/Joe-Heffer/sys2txt/commit/eaad37c5de1daa25a9330e32c5026af9cb76851f">eaad37c</a>)</li>
+<li>tweak README (<a href="https://github.com/Joe-Heffer/sys2txt/commit/eb8f1b16f32290207898b0633de77501a27d65a6">eb8f1b1</a>)</li>
+</ul>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.instant", "navigation.tracking", "navigation.top", "content.code.copy", "search.suggest"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+    
+  </body>
+</html>
