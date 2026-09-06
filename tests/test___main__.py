@@ -13,6 +13,7 @@ from sys2txt.__main__ import (
     _build_options,
     _build_transcription_config,
     _check_output_writable,
+    _ColorFormatter,
     _configure_logging,
     _format_segment,
     _save_transcript,
@@ -951,20 +952,17 @@ class TestConfigureLogging(unittest.TestCase):
         root.level = self._original_level
 
     def test_verbose_sets_debug(self):
-        with patch.dict(os.environ, {}, clear=False):
-            os.environ.pop("SYS2TXT_LOG_LEVEL", None)
+        with patch.dict(os.environ, {}, clear=True):
             _configure_logging(verbose=True, quiet=False)
         self.assertEqual(logging.getLogger().level, logging.DEBUG)
 
     def test_quiet_sets_warning(self):
-        with patch.dict(os.environ, {}, clear=False):
-            os.environ.pop("SYS2TXT_LOG_LEVEL", None)
+        with patch.dict(os.environ, {}, clear=True):
             _configure_logging(verbose=False, quiet=True)
         self.assertEqual(logging.getLogger().level, logging.WARNING)
 
     def test_default_sets_warning(self):
-        with patch.dict(os.environ, {}, clear=False):
-            os.environ.pop("SYS2TXT_LOG_LEVEL", None)
+        with patch.dict(os.environ, {}, clear=True):
             _configure_logging(verbose=False, quiet=False)
         self.assertEqual(logging.getLogger().level, logging.WARNING)
 
@@ -984,11 +982,50 @@ class TestConfigureLogging(unittest.TestCase):
         self.assertEqual(logging.getLogger().level, logging.WARNING)
 
     def test_configure_logging_does_not_duplicate_handlers(self):
-        with patch.dict(os.environ, {}, clear=False):
-            os.environ.pop("SYS2TXT_LOG_LEVEL", None)
+        with patch.dict(os.environ, {}, clear=True):
             _configure_logging(verbose=False, quiet=False)
             _configure_logging(verbose=False, quiet=False)
         self.assertEqual(len(logging.getLogger().handlers), 1)
+
+
+class TestColorFormatter(unittest.TestCase):
+    """Tests for _ColorFormatter."""
+
+    def _record(self, level):
+        return logging.LogRecord(
+            name="sys2txt", level=level, pathname=__file__, lineno=1, msg="hello", args=(), exc_info=None
+        )
+
+    def test_wraps_the_level_name_in_its_color_code(self):
+        formatter = _ColorFormatter("%(levelname)s: %(message)s")
+
+        formatted = formatter.format(self._record(logging.WARNING))
+
+        self.assertIn(_ColorFormatter.COLORS[logging.WARNING], formatted)
+        self.assertIn(_ColorFormatter.RESET, formatted)
+        self.assertIn("hello", formatted)
+
+    def test_different_levels_get_different_colors(self):
+        formatter = _ColorFormatter("%(levelname)s")
+
+        warning = formatter.format(self._record(logging.WARNING))
+        error = formatter.format(self._record(logging.ERROR))
+
+        self.assertNotEqual(
+            _ColorFormatter.COLORS[logging.WARNING],
+            _ColorFormatter.COLORS[logging.ERROR],
+        )
+        self.assertIn(_ColorFormatter.COLORS[logging.WARNING], warning)
+        self.assertIn(_ColorFormatter.COLORS[logging.ERROR], error)
+
+    def test_does_not_mutate_the_original_record(self):
+        """The formatter must not leave colored level names on records other handlers also see."""
+        formatter = _ColorFormatter("%(levelname)s")
+        record = self._record(logging.ERROR)
+
+        formatter.format(record)
+
+        self.assertEqual(record.levelname, "ERROR")
 
 
 if __name__ == "__main__":
