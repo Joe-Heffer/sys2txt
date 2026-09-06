@@ -83,14 +83,14 @@ class TestRegistry(unittest.TestCase):
     @patch.dict(os.environ, {}, clear=True)
     def test_auto_falls_back_to_whisper_cpp(self):
         with patch.dict("sys.modules", {"faster_whisper": None, "whisper": None}):
-            with patch("shutil.which", return_value="/usr/bin/whisper-cli"):
+            with patch("sys2txt.engines.shutil.which", return_value="/usr/bin/whisper-cli"):
                 self.assertEqual(get_engine("auto").name, "cpp")
 
     @patch.dict(os.environ, {}, clear=True)
     def test_auto_with_nothing_installed_names_every_engine(self):
         """Regression for #63: auto used to fall through to cpp and report a missing binary."""
         with patch.dict("sys.modules", {"faster_whisper": None, "whisper": None}):
-            with patch("shutil.which", return_value=None):
+            with patch("sys2txt.engines.shutil.which", return_value=None):
                 with self.assertRaises(RuntimeError) as cm:
                     get_engine("auto")
 
@@ -100,14 +100,19 @@ class TestRegistry(unittest.TestCase):
             self.assertIn(name, message)
 
     def test_unload_engines_releases_every_cached_model(self):
-        engine = get_engine("faster")
-        engine._model = object()
-        engine._key = ("small", "cpu", "int8")
+        mock_model_class = MagicMock()
+        mock_model_class.return_value.transcribe.return_value = ([], None)
+        fake_module = MagicMock(WhisperModel=mock_model_class)
 
-        unload_engines()
+        with patch.dict("sys.modules", {"faster_whisper": fake_module}):
+            engine = get_engine("faster")
+            config = TranscriptionConfig(device="cpu")
+            engine.transcribe("/path/to/audio.wav", config)
 
-        self.assertIsNone(engine._model)
-        self.assertIsNone(engine._key)
+            unload_engines()
+            engine.transcribe("/path/to/audio.wav", config)
+
+        self.assertEqual(mock_model_class.call_count, 2)
 
 
 class TestResolveDevice(unittest.TestCase):
@@ -318,24 +323,31 @@ class TestModelCache(unittest.TestCase):
 
         self.engine.transcribe("/path/to/audio.wav", config)
         self.engine.unload()
-        self.assertIsNone(self.engine._model)
-        self.assertIsNone(self.engine._key)
-
         self.engine.transcribe("/path/to/audio.wav", config)
 
         self.assertEqual(mock_model_class.call_count, 2)
 
     @patch("faster_whisper.WhisperModel")
     def test_concurrent_calls_load_model_once(self, mock_model_class):
-        """Concurrent transcriptions with same params should only load the model once."""
-        mock_model_class.return_value.transcribe.return_value = ([whisper_segment(" Hello ", 0.0, 1.0)], None)
+        """Concurrent transcriptions with same params should only load the model once.
 
-        barrier = threading.Barrier(4)
+        Rather than racing real threads against each other (a source of CI flakes), the
+        model constructor itself blocks every caller on one Event, so all four threads are
+        guaranteed to be inside the critical section together before any of them proceeds.
+        """
+        release = threading.Event()
+
+        def slow_constructor(*args, **kwargs):
+            release.wait(timeout=10)
+            model = MagicMock()
+            model.transcribe.return_value = ([whisper_segment(" Hello ", 0.0, 1.0)], None)
+            return model
+
+        mock_model_class.side_effect = slow_constructor
         errors = []
 
         def worker():
             try:
-                barrier.wait()
                 self.engine.transcribe("/path/to/audio.wav", TranscriptionConfig(device="cpu"))
             except Exception as e:
                 errors.append(e)
@@ -343,8 +355,12 @@ class TestModelCache(unittest.TestCase):
         threads = [threading.Thread(target=worker) for _ in range(4)]
         for thread in threads:
             thread.start()
+        # Give every thread a chance to block on the lock before releasing the constructor -
+        # only one of them can be inside it at a time, so this just needs to outlast scheduling.
+        threading.Event().wait(0.05)
+        release.set()
         for thread in threads:
-            thread.join(timeout=30)
+            thread.join(timeout=10)
 
         # A join() timeout alone can't fail the test on its own, so check explicitly that
         # nothing is still running -- a genuine deadlock should fail loudly, not pass quietly.
@@ -358,14 +374,14 @@ class TestResolveWhisperCppBinary(unittest.TestCase):
 
     def test_explicit_path_valid(self):
         """Test explicit path that exists."""
-        with patch("os.path.isfile", return_value=True):
+        with patch("sys2txt.engines.os.path.isfile", return_value=True):
             result = _resolve_whisper_cpp_binary("/path/to/whisper-cli")
 
         self.assertEqual(result, "/path/to/whisper-cli")
 
     def test_explicit_path_invalid(self):
         """Test explicit path that doesn't exist."""
-        with patch("os.path.isfile", return_value=False):
+        with patch("sys2txt.engines.os.path.isfile", return_value=False):
             with self.assertRaises(RuntimeError) as cm:
                 _resolve_whisper_cpp_binary("/path/to/whisper-cli")
 
@@ -374,7 +390,7 @@ class TestResolveWhisperCppBinary(unittest.TestCase):
     @patch.dict(os.environ, {"SYS2TXT_WHISPER_CPP": "/env/whisper-cli"})
     def test_env_var_valid(self):
         """Test environment variable path that exists."""
-        with patch("os.path.isfile", return_value=True):
+        with patch("sys2txt.engines.os.path.isfile", return_value=True):
             result = _resolve_whisper_cpp_binary(None)
 
         self.assertEqual(result, "/env/whisper-cli")
@@ -382,7 +398,7 @@ class TestResolveWhisperCppBinary(unittest.TestCase):
     @patch.dict(os.environ, {"SYS2TXT_WHISPER_CPP": "/env/whisper-cli"})
     def test_env_var_invalid(self):
         """Test environment variable path that doesn't exist."""
-        with patch("os.path.isfile", return_value=False):
+        with patch("sys2txt.engines.os.path.isfile", return_value=False):
             with self.assertRaises(RuntimeError) as cm:
                 _resolve_whisper_cpp_binary(None)
 
@@ -391,7 +407,7 @@ class TestResolveWhisperCppBinary(unittest.TestCase):
     @patch.dict(os.environ, {}, clear=True)
     def test_path_lookup_found(self):
         """Test PATH lookup succeeds."""
-        with patch("shutil.which", return_value="/usr/bin/whisper-cli"):
+        with patch("sys2txt.engines.shutil.which", return_value="/usr/bin/whisper-cli"):
             result = _resolve_whisper_cpp_binary(None)
 
         self.assertEqual(result, "/usr/bin/whisper-cli")
@@ -399,7 +415,7 @@ class TestResolveWhisperCppBinary(unittest.TestCase):
     @patch.dict(os.environ, {}, clear=True)
     def test_path_lookup_not_found(self):
         """Test PATH lookup fails."""
-        with patch("shutil.which", return_value=None):
+        with patch("sys2txt.engines.shutil.which", return_value=None):
             with self.assertRaises(RuntimeError) as cm:
                 _resolve_whisper_cpp_binary(None)
 
@@ -411,14 +427,14 @@ class TestResolveWhisperCppModelPath(unittest.TestCase):
 
     def test_explicit_path_valid(self):
         """Test explicit model path that exists."""
-        with patch("os.path.isfile", return_value=True):
+        with patch("sys2txt.engines.os.path.isfile", return_value=True):
             result = _resolve_whisper_cpp_model_path("/path/to/model.bin", "small")
 
         self.assertEqual(result, "/path/to/model.bin")
 
     def test_explicit_path_invalid(self):
         """Test explicit model path that doesn't exist."""
-        with patch("os.path.isfile", return_value=False):
+        with patch("sys2txt.engines.os.path.isfile", return_value=False):
             with self.assertRaises(RuntimeError) as cm:
                 _resolve_whisper_cpp_model_path("/path/to/model.bin", "small")
 
@@ -427,7 +443,7 @@ class TestResolveWhisperCppModelPath(unittest.TestCase):
     @patch.dict(os.environ, {"SYS2TXT_WHISPER_CPP_MODELS": "/models"})
     def test_env_var_models_dir(self):
         """Test models directory from environment variable."""
-        with patch("os.path.isfile", return_value=True):
+        with patch("sys2txt.engines.os.path.isfile", return_value=True):
             result = _resolve_whisper_cpp_model_path(None, "small")
 
         self.assertEqual(result, "/models/ggml-small.bin")
@@ -445,7 +461,7 @@ class TestResolveWhisperCppModelPath(unittest.TestCase):
     @patch.dict(os.environ, {}, clear=True)
     def test_model_not_found_download_disabled(self):
         """Test model not found anywhere and downloading is disabled."""
-        with patch("os.path.isfile", return_value=False):
+        with patch("sys2txt.engines.os.path.isfile", return_value=False):
             with patch.object(Path, "is_file", return_value=False):
                 with self.assertRaises(RuntimeError) as cm:
                     _resolve_whisper_cpp_model_path(None, "small", download=False)
@@ -457,7 +473,7 @@ class TestResolveWhisperCppModelPath(unittest.TestCase):
         """Test a missing model is downloaded to the default directory."""
         expected_path = Path.home() / ".local" / "share" / "whisper.cpp" / "models" / "ggml-small.bin"
 
-        with patch("os.path.isfile", return_value=False):
+        with patch("sys2txt.engines.os.path.isfile", return_value=False):
             with patch.object(Path, "is_file", return_value=False):
                 result = _resolve_whisper_cpp_model_path(None, "small")
 
@@ -468,7 +484,7 @@ class TestResolveWhisperCppModelPath(unittest.TestCase):
     @patch("sys2txt.engines._download_whisper_cpp_model")
     def test_model_missing_downloads_to_env_dir(self, mock_download):
         """Test a missing model is downloaded to SYS2TXT_WHISPER_CPP_MODELS if set."""
-        with patch("os.path.isfile", return_value=False):
+        with patch("sys2txt.engines.os.path.isfile", return_value=False):
             result = _resolve_whisper_cpp_model_path(None, "small")
 
         mock_download.assert_called_once_with("ggml-small.bin", Path("/models/ggml-small.bin"))
@@ -479,7 +495,7 @@ class TestResolveWhisperCppModelPath(unittest.TestCase):
         """Test a failed download still raises the original 'not found' error."""
         mock_download.side_effect = RuntimeError("network unreachable")
 
-        with patch("os.path.isfile", return_value=False):
+        with patch("sys2txt.engines.os.path.isfile", return_value=False):
             with patch.object(Path, "is_file", return_value=False):
                 with self.assertRaises(RuntimeError) as cm:
                     _resolve_whisper_cpp_model_path(None, "small")
@@ -499,7 +515,7 @@ class TestDownloadWhisperCppModel(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmpdir:
             destination = Path(tmpdir) / "models" / "ggml-small.bin"
-            with patch("urllib.request.urlopen", return_value=response):
+            with patch("sys2txt.engines.urllib.request.urlopen", return_value=response):
                 _download_whisper_cpp_model("ggml-small.bin", destination)
 
             self.assertTrue(destination.is_file())
@@ -510,7 +526,7 @@ class TestDownloadWhisperCppModel(unittest.TestCase):
         """Test a network failure raises RuntimeError and cleans up the .part file."""
         with tempfile.TemporaryDirectory() as tmpdir:
             destination = Path(tmpdir) / "models" / "ggml-small.bin"
-            with patch("urllib.request.urlopen", side_effect=urllib.error.URLError("boom")):
+            with patch("sys2txt.engines.urllib.request.urlopen", side_effect=urllib.error.URLError("boom")):
                 with self.assertRaises(RuntimeError) as cm:
                     _download_whisper_cpp_model("ggml-small.bin", destination)
 

@@ -160,6 +160,8 @@ class TestTranscribeLive(unittest.TestCase):
         first, second = MagicMock(), MagicMock()
         first.submit.return_value = stuck
         second.submit.return_value = recovered
+        # Exactly two executors are expected here (the abandoned one, then its replacement) -
+        # this is the behaviour under test, not an incidental iteration count.
         mock_executor_cls.side_effect = [first, second]
 
         with self.assertLogs("sys2txt.pipeline", level="WARNING"):
