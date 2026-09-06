@@ -97,10 +97,10 @@ sys2txt live --model small.en --segment-seconds 8
   Python engines (`faster`, `whisper`), `vulkan`/`gpu` to `cpp`; `auto` reads `SYS2TXT_DEVICE`, else CPU
 - `--language <code>` - Force language code (e.g., en). Omit to auto-detect
 - `--format <txt|srt|vtt|json|tsv>` - Transcript format (default: txt). See [Output formats](#output-formats)
-- `--output <path>` - Write the transcript to a file. Without it, one is written to
-  `./output/<timestamp>.<ext>` (the `output` directory is created in the current working directory
-  if it doesn't exist). In live mode `txt` appends to an existing file; the timed formats
-  replace it, since a subtitle or JSON document cannot resume mid-file
+- `--output <path>` - Also write the transcript to a file. Without it, the transcript is only
+  printed to stdout (redirect it yourself with `>` if you want a file). In live mode `txt`
+  appends to an existing file; the timed formats replace it, since a subtitle or JSON document
+  cannot resume mid-file
 - `--duration <seconds>` - (once mode) Record fixed duration instead of waiting for Ctrl-C
 - `--segment-seconds <n>` - (live mode) Segment length in seconds (default: 8)
 - `--silence-timeout <seconds>` - (live mode) Stop automatically after N consecutive seconds of silence (0=disabled, default: 0). Segments that fail to transcribe do not count as silence
