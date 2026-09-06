@@ -32,6 +32,9 @@ markdown_extensions:
   - pymdownx.details
   - pymdownx.superfences
   - pymdownx.highlight
+  - pymdownx.snippets:
+      base_path: .
+      check_paths: true
   - tables
   - toc:
       permalink: true
@@ -47,3 +50,4 @@ nav:
   - Examples: examples.md
   - Python API: python-api.md
   - Troubleshooting: troubleshooting.md
+  - Changelog: changelog.md
