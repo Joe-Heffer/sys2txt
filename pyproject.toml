@@ -29,9 +29,11 @@ classifiers = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/Joe-Heffer/sys2txt"
+Homepage = "https://joe-heffer.github.io/sys2txt/"
 Issues = "https://github.com/Joe-Heffer/sys2txt/issues"
 Documentation = "https://joe-heffer.github.io/sys2txt/"
+Repository = "https://github.com/Joe-Heffer/sys2txt"
+Changelog = "https://github.com/Joe-Heffer/sys2txt/blob/main/CHANGELOG.md"
 
 [project.scripts]
 sys2txt = "sys2txt.__main__:main"
