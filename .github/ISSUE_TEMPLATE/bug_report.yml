@@ -1,0 +1,84 @@
+name: Bug report
+description: Report a problem with sys2txt
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a bug. For anything that looks like a security
+        vulnerability, please follow the process in
+        [SECURITY.md](https://github.com/Joe-Heffer/sys2txt/blob/main/SECURITY.md) instead of
+        filing a public issue.
+
+  - type: input
+    id: version
+    attributes:
+      label: sys2txt version
+      description: Output of `sys2txt --version`
+    validations:
+      required: true
+
+  - type: input
+    id: install-method
+    attributes:
+      label: Installation method
+      description: e.g. pip, pipx, editable install from source
+    validations:
+      required: true
+
+  - type: input
+    id: os
+    attributes:
+      label: OS / distro
+    validations:
+      required: true
+
+  - type: dropdown
+    id: audio-system
+    attributes:
+      label: Audio system
+      options:
+        - PulseAudio
+        - PipeWire
+        - Not sure
+    validations:
+      required: true
+
+  - type: textarea
+    id: command
+    attributes:
+      label: Command
+      description: The full command you ran, including flags
+      render: shell
+    validations:
+      required: true
+
+  - type: textarea
+    id: error
+    attributes:
+      label: Error message / traceback
+      description: The complete error message or traceback, ideally with `--verbose`/`-v` for debug logging
+      render: shell
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behaviour
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behaviour
+    validations:
+      required: true
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+    validations:
+      required: false
