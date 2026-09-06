@@ -4,12 +4,12 @@
 [![PyPI version](https://badge.fury.io/py/sys2txt.svg)](https://badge.fury.io/py/sys2txt)
 ![Coverage](badge.svg)
 
+Record system audio and automatically transcribe to text using ✨AI✨.
+
 [![asciicast](https://asciinema.org/a/6Ob4WmuccSXEljRm.svg)](https://asciinema.org/a/6Ob4WmuccSXEljRm)
 
 *`sys2txt live` transcribing a public-domain LibriVox reading of Wordsworth's
 ["We Are Seven"](https://archive.org/details/spc277_2607_librivox) (recording by David Freisty, public domain).*
-
-Record system audio and automatically transcribe to text using ✨AI✨.
 
 **Full documentation:** [Joe-Heffer.github.io/sys2txt/](https://joe-heffer.github.io/sys2txt/)
 
