@@ -31,6 +31,7 @@ classifiers = [
 [project.urls]
 Homepage = "https://github.com/Joe-Heffer/sys2txt"
 Issues = "https://github.com/Joe-Heffer/sys2txt/issues"
+Documentation = "https://joe-heffer.github.io/sys2txt/"
 
 [project.scripts]
 sys2txt = "sys2txt.__main__:main"
