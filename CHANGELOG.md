@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.7.1](https://github.com/Joe-Heffer/sys2txt/compare/v0.7.0...v0.7.1) (2026-09-06)
+
+
+### Documentation
+
+* add animated demo to README ([#121](https://github.com/Joe-Heffer/sys2txt/issues/121)) ([bb18bca](https://github.com/Joe-Heffer/sys2txt/commit/bb18bca944d2df77929aef98646a8f2ba72618a1))
+* add bug reporting instructions ([#112](https://github.com/Joe-Heffer/sys2txt/issues/112)) ([19926d7](https://github.com/Joe-Heffer/sys2txt/commit/19926d7b2e5a703e237c51dc16c3745f05af6e0c))
+* add changelog page to docs site ([#111](https://github.com/Joe-Heffer/sys2txt/issues/111)) ([a0cd817](https://github.com/Joe-Heffer/sys2txt/commit/a0cd817fab2d47d7eb80134866f771652c8b7bd8))
+* add MkDocs Material site, slim README to overview + quick start ([#109](https://github.com/Joe-Heffer/sys2txt/issues/109)) ([f762030](https://github.com/Joe-Heffer/sys2txt/commit/f762030a3df163f594fe8005951b9b63e90db241))
+
 ## [0.7.0](https://github.com/Joe-Heffer/sys2txt/compare/v0.6.1...v0.7.0) (2026-09-06)
 
 
