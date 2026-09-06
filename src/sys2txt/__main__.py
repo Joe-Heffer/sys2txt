@@ -8,7 +8,6 @@ import logging
 import os
 import sys
 from dataclasses import dataclass
-from datetime import datetime
 from typing import Optional, TextIO
 
 from . import __version__
@@ -20,7 +19,7 @@ from .constants import (
     get_default_whisper_model,
 )
 from .engines import ENGINE_NAMES
-from .formats import FORMAT_EXTENSIONS, OUTPUT_FORMATS, TIMED_FORMATS, get_formatter, render_transcript
+from .formats import OUTPUT_FORMATS, TIMED_FORMATS, get_formatter, render_transcript
 from .pipeline import TranscriptSegment, transcribe_live, transcribe_once_cues
 from .pulse import get_default_monitor_source, list_pulse_sources
 from .transcribe import TranscriptionConfig, transcribe_file_cues
@@ -51,41 +50,6 @@ class Options:
     max_lag: float = 0.0
     on_lag: str = "drop"
     output_format: str = DEFAULT_OUTPUT_FORMAT
-
-
-def get_timestamp_filename(extension: str = ".txt") -> str:
-    """Generate a timestamp-based filename for output files.
-
-    Args:
-        extension: File extension to append, including the leading dot
-
-    Returns:
-        A filename string in the format: YYYY-MM-DD_HH-MM-SS<extension>
-    """
-    return datetime.now().strftime("%Y-%m-%d_%H-%M-%S") + extension
-
-
-def ensure_output_dir() -> str:
-    """Ensure the output directory exists and return its path.
-
-    Returns:
-        Absolute path to the output directory
-    """
-    output_dir = os.path.join(os.getcwd(), "output")
-    os.makedirs(output_dir, exist_ok=True)
-    return output_dir
-
-
-def _resolve_output_path(output_arg: Optional[str], output_format: str = DEFAULT_OUTPUT_FORMAT) -> str:
-    """Return the output file path, generating a timestamped name if none given.
-
-    A generated name takes the extension of the output format; an explicit path is used
-    as given, on the assumption the caller named it deliberately.
-    """
-    if output_arg:
-        return output_arg
-    output_dir = ensure_output_dir()
-    return os.path.join(output_dir, get_timestamp_filename(FORMAT_EXTENSIONS[output_format]))
 
 
 def _build_options(args: argparse.Namespace) -> Options:
@@ -198,16 +162,17 @@ def _check_output_writable(output_file: str) -> None:
         raise RuntimeError(f"--output path is not writable: {output_file} ({e})") from e
 
 
-def _save_transcript(text: str, output_file: str) -> None:
-    """Print transcript, write it to output_file, and log the saved path.
+def _save_transcript(text: str, output_file: Optional[str]) -> None:
+    """Print transcript, and write it to output_file if one was given.
 
     The document ends in exactly one newline, whether or not the format supplied its own.
     """
     document = text if text.endswith("\n") else text + "\n"
     print(document, end="")
-    with open(output_file, "w", encoding="utf-8") as w:
-        w.write(document)
-    logger.info("Transcript saved to: %s", output_file)
+    if output_file is not None:
+        with open(output_file, "w", encoding="utf-8") as w:
+            w.write(document)
+        logger.info("Transcript saved to: %s", output_file)
 
 
 def _format_segment(segment: TranscriptSegment, timestamps: bool) -> str:
@@ -410,8 +375,9 @@ def _list_sources() -> None:
 
 def _run_once(options: Options, source: str) -> None:
     """Record (or read) a single audio file, transcribe it, and save the transcript."""
-    output_file = _resolve_output_path(options.output, options.output_format)
-    _check_output_writable(output_file)
+    output_file = options.output
+    if output_file is not None:
+        _check_output_writable(output_file)
     config = _build_transcription_config(options)
 
     if options.input_path:
@@ -428,22 +394,24 @@ def _run_once(options: Options, source: str) -> None:
     _save_transcript(text, output_file)
 
 
-def _emit(chunk: str, handle: TextIO) -> None:
-    """Print one piece of a transcript document and append it to the open output file."""
+def _emit(chunk: str, handle: Optional[TextIO]) -> None:
+    """Print one piece of a transcript document and append it to the open output file, if any."""
     if not chunk:
         return
     print(chunk, end="", flush=True)
-    handle.write(chunk)
-    handle.flush()
+    if handle is not None:
+        handle.write(chunk)
+        handle.flush()
 
 
 def _run_live(options: Options, source: str) -> None:
     """Consume live transcript segments, printing and saving each one as it arrives."""
-    output_file = _resolve_output_path(options.output, options.output_format)
-    _check_output_writable(output_file)
-    config = _build_transcription_config(options)
-    logger.info("Live transcript will be saved to: %s", output_file)
+    output_file = options.output
+    if output_file is not None:
+        _check_output_writable(output_file)
+        logger.info("Live transcript will be saved to: %s", output_file)
     logger.info("Press Ctrl-C once to stop live capture and save the transcript.")
+    config = _build_transcription_config(options)
 
     # Plain text is a running log that can be appended to. The other formats are documents
     # with their own header, cue numbering and syntax, so each run starts a fresh one.
@@ -457,7 +425,12 @@ def _run_live(options: Options, source: str) -> None:
     silence_start: Optional[float] = None
     failures = 0
     failure: Optional[str] = None
-    with open(output_file, "a" if formatter is None else "w", encoding="utf-8") as handle:
+    file_ctx = (
+        contextlib.nullcontext(None)
+        if output_file is None
+        else open(output_file, "a" if formatter is None else "w", encoding="utf-8")
+    )
+    with file_ctx as handle:
         if formatter is not None:
             _emit(formatter.header(), handle)
         try:
@@ -466,8 +439,9 @@ def _run_live(options: Options, source: str) -> None:
                     if formatter is None:
                         line = _format_segment(segment, options.timestamps)
                         print(line, flush=True)
-                        handle.write(line + "\n")
-                        handle.flush()
+                        if handle is not None:
+                            handle.write(line + "\n")
+                            handle.flush()
                     else:
                         for cue in segment.cues:
                             _emit(formatter.cue(cue), handle)
@@ -516,7 +490,8 @@ def _run_live(options: Options, source: str) -> None:
             # was interrupted. JSON in particular is written entirely from here.
             _emit(formatter.footer(), handle)
 
-    logger.info("Transcript saved to: %s", output_file)
+    if output_file is not None:
+        logger.info("Transcript saved to: %s", output_file)
     if failure:
         raise RuntimeError(failure)
 

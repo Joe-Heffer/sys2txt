@@ -15,7 +15,6 @@ from sys2txt.__main__ import (
     _check_output_writable,
     _configure_logging,
     _format_segment,
-    _resolve_output_path,
     _save_transcript,
     main,
 )
@@ -81,22 +80,6 @@ def live_segments(*items, segment_seconds=8, indices=None, lags=(), dropped=()):
             lag=lags[position] if position < len(lags) else 0.0,
             dropped=dropped[position] if position < len(dropped) else 0,
         )
-
-
-class TestResolveOutputPath(unittest.TestCase):
-    def test_explicit_arg_returned_as_is(self):
-        with patch("sys2txt.__main__.ensure_output_dir") as mock_ensure_output_dir:
-            result = _resolve_output_path("/tmp/my_output.txt")
-        self.assertEqual(result, "/tmp/my_output.txt")
-        mock_ensure_output_dir.assert_not_called()
-
-    def test_none_generates_timestamped_path(self):
-        with (
-            patch("sys2txt.__main__.ensure_output_dir", return_value="/out"),
-            patch("sys2txt.__main__.get_timestamp_filename", return_value="2024-01-01_00-00-00.txt"),
-        ):
-            result = _resolve_output_path(None)
-        self.assertEqual(result, os.path.join("/out", "2024-01-01_00-00-00.txt"))
 
 
 class TestBuildOptions(unittest.TestCase):
@@ -290,6 +273,18 @@ class TestSaveTranscript(unittest.TestCase):
         m().write.assert_called_once_with("hello world\n")
         mock_logger.info.assert_called_once_with("Transcript saved to: %s", "/out/transcript.txt")
 
+    def test_none_output_file_only_prints(self):
+        with (
+            patch("builtins.open") as mock_open_,
+            patch("builtins.print") as mock_print,
+            patch("sys2txt.__main__.logger") as mock_logger,
+        ):
+            _save_transcript("hello world", None)
+
+        mock_print.assert_called_once_with("hello world\n", end="")
+        mock_open_.assert_not_called()
+        mock_logger.info.assert_not_called()
+
 
 class TestCheckOutputWritable(unittest.TestCase):
     def test_missing_directory_raises_without_touching_disk(self):
@@ -316,24 +311,22 @@ class TestArgumentParsing(unittest.TestCase):
     @patch("sys2txt.__main__.get_default_monitor_source", return_value="default.monitor")
     @patch("sys2txt.__main__.transcribe_once_cues", return_value=Transcript())
     @patch("sys2txt.__main__._save_transcript")
-    @patch("sys2txt.__main__._resolve_output_path", return_value="/tmp/out.txt")
-    def test_once_defaults(self, _res, _save, mock_once, _src, _log):
+    def test_once_defaults(self, _save, mock_once, _src, _log):
         with patch("sys.argv", ["sys2txt", "once"]):
             main()
         mock_once.assert_called_once()
         self.assertEqual(mock_once.call_args[0][0], "default.monitor")
         self.assertIsNone(mock_once.call_args[0][2])
+        # No --output given, so nothing is resolved to a file path
+        self.assertIsNone(_save.call_args[0][1])
 
     @patch("sys2txt.__main__._configure_logging")
     @patch("sys2txt.__main__.get_default_monitor_source", return_value="default.monitor")
-    @patch("sys2txt.__main__.transcribe_live", return_value=iter(()))
-    @patch("sys2txt.__main__._resolve_output_path")
-    def test_live_defaults(self, mock_res, mock_live, _src, _log):
-        with tempfile.TemporaryDirectory() as tmp:
-            mock_res.return_value = os.path.join(tmp, "out.txt")
-            mock_live.return_value = live_segments()
-            with patch("sys.argv", ["sys2txt", "live"]):
-                main()
+    @patch("sys2txt.__main__.transcribe_live", return_value=live_segments())
+    @patch("builtins.print")
+    def test_live_defaults(self, _print, mock_live, _src, _log):
+        with patch("sys.argv", ["sys2txt", "live"]):
+            main()
         mock_live.assert_called_once()
         self.assertEqual(mock_live.call_args[1]["segment_seconds"], 8)
 
@@ -341,8 +334,7 @@ class TestArgumentParsing(unittest.TestCase):
     @patch("sys2txt.__main__.get_default_monitor_source", return_value="default.monitor")
     @patch("sys2txt.__main__.transcribe_file_cues", return_value=Transcript())
     @patch("sys2txt.__main__._save_transcript")
-    @patch("sys2txt.__main__._resolve_output_path", return_value="/tmp/out.txt")
-    def test_once_with_input_skips_recording(self, _res, _save, mock_trans, _src, _log):
+    def test_once_with_input_skips_recording(self, _save, mock_trans, _src, _log):
         with tempfile.NamedTemporaryFile(suffix=".wav") as audio:
             with (
                 patch("sys.argv", ["sys2txt", "once", "--input", audio.name]),
@@ -356,8 +348,7 @@ class TestArgumentParsing(unittest.TestCase):
     @patch("sys2txt.__main__.get_default_monitor_source", return_value="default.monitor")
     @patch("sys2txt.__main__.transcribe_once_cues", return_value=Transcript())
     @patch("sys2txt.__main__._save_transcript")
-    @patch("sys2txt.__main__._resolve_output_path", return_value="/tmp/out.txt")
-    def test_once_all_flags(self, _res, _save, mock_once, _src, _log):
+    def test_once_all_flags(self, mock_save, mock_once, _src, _log):
         with patch(
             "sys.argv",
             [
@@ -386,16 +377,14 @@ class TestArgumentParsing(unittest.TestCase):
         _src.assert_not_called()
         self.assertEqual(mock_once.call_args[0][0], "my.monitor")
         self.assertEqual(mock_once.call_args[0][2], 30)
-        # Output was explicitly provided so _resolve_output_path gets it
-        _res.assert_called_once_with("/tmp/my.txt", "txt")
+        # Output was explicitly provided, so it's passed straight through
+        self.assertEqual(mock_save.call_args[0][1], "/tmp/my.txt")
 
     @patch("sys2txt.__main__._configure_logging")
     @patch("sys2txt.__main__.get_default_monitor_source", return_value="default.monitor")
     @patch("sys2txt.__main__.transcribe_live")
-    @patch("sys2txt.__main__._resolve_output_path")
-    def test_live_all_flags(self, mock_res, mock_live, _src, _log):
+    def test_live_all_flags(self, mock_live, _src, _log):
         with tempfile.TemporaryDirectory() as tmp:
-            mock_res.return_value = os.path.join(tmp, "out.txt")
             mock_live.return_value = live_segments()
             with patch(
                 "sys.argv",
@@ -421,7 +410,7 @@ class TestArgumentParsing(unittest.TestCase):
                     "--segment-seconds",
                     "15",
                     "--output",
-                    "/tmp/live.txt",
+                    os.path.join(tmp, "live.txt"),
                     "--silence-timeout",
                     "30",
                     "--max-lag",
@@ -445,8 +434,7 @@ class TestArgumentParsing(unittest.TestCase):
     @patch("sys2txt.__main__._configure_logging")
     @patch("sys2txt.__main__.get_default_monitor_source", return_value="default.monitor")
     @patch("sys2txt.__main__.transcribe_once_cues", side_effect=KeyboardInterrupt())
-    @patch("sys2txt.__main__._resolve_output_path", return_value="/tmp/out.txt")
-    def test_keyboard_interrupt_exits_cleanly(self, _res, _once, _src, _log):
+    def test_keyboard_interrupt_exits_cleanly(self, _once, _src, _log):
         with patch("sys.argv", ["sys2txt", "once"]):
             with self.assertRaises(SystemExit) as ctx:
                 main()
@@ -524,9 +512,8 @@ class TestModeDispatchOnce(unittest.TestCase):
     @patch("sys2txt.__main__.get_default_monitor_source", return_value="default.monitor")
     @patch("sys2txt.__main__.transcribe_once_cues", return_value=Transcript((Cue(0.0, 1.0, "hello world"),)))
     @patch("sys2txt.__main__._save_transcript")
-    @patch("sys2txt.__main__._resolve_output_path", return_value="/tmp/out.txt")
-    def test_once_records_then_transcribes(self, _res, mock_save, mock_once, _src, _log):
-        with patch("sys.argv", ["sys2txt", "once"]):
+    def test_once_records_then_transcribes(self, mock_save, mock_once, _src, _log):
+        with patch("sys.argv", ["sys2txt", "once", "--output", "/tmp/out.txt"]):
             main()
         mock_once.assert_called_once()
         mock_save.assert_called_once_with("hello world", "/tmp/out.txt")
@@ -535,10 +522,9 @@ class TestModeDispatchOnce(unittest.TestCase):
     @patch("sys2txt.__main__.get_default_monitor_source", return_value="default.monitor")
     @patch("sys2txt.__main__.transcribe_file_cues", return_value=Transcript((Cue(0.0, 1.0, "from file"),)))
     @patch("sys2txt.__main__._save_transcript")
-    @patch("sys2txt.__main__._resolve_output_path", return_value="/tmp/out.txt")
-    def test_once_input_skips_recording(self, _res, mock_save, mock_trans, _src, _log):
+    def test_once_input_skips_recording(self, mock_save, mock_trans, _src, _log):
         with tempfile.NamedTemporaryFile(suffix=".wav") as audio:
-            with patch("sys.argv", ["sys2txt", "once", "--input", audio.name]):
+            with patch("sys.argv", ["sys2txt", "once", "--input", audio.name, "--output", "/tmp/out.txt"]):
                 main()
             self.assertEqual(mock_trans.call_args[0][0], audio.name)
         mock_save.assert_called_once_with("from file", "/tmp/out.txt")
@@ -546,9 +532,8 @@ class TestModeDispatchOnce(unittest.TestCase):
     @patch("sys2txt.__main__._configure_logging")
     @patch("sys2txt.__main__.get_default_monitor_source", return_value="default.monitor")
     @patch("sys2txt.__main__.transcribe_once_cues")
-    @patch("sys2txt.__main__._resolve_output_path", return_value="/does/not/exist/out.txt")
-    def test_unwritable_output_fails_before_recording(self, _res, mock_once, _src, _log):
-        with patch("sys.argv", ["sys2txt", "once"]):
+    def test_unwritable_output_fails_before_recording(self, mock_once, _src, _log):
+        with patch("sys.argv", ["sys2txt", "once", "--output", "/does/not/exist/out.txt"]):
             with self.assertRaises(SystemExit) as ctx:
                 main()
         self.assertEqual(ctx.exception.code, 1)
@@ -565,10 +550,9 @@ class TestOnceOutputFormats(unittest.TestCase):
             with (
                 patch("sys2txt.__main__._configure_logging"),
                 patch("sys2txt.__main__.get_default_monitor_source", return_value="default.monitor"),
-                patch("sys2txt.__main__._resolve_output_path", return_value=output_file),
                 patch("sys2txt.__main__.transcribe_once_cues", return_value=transcript),
                 patch("builtins.print") as mock_print,
-                patch("sys.argv", argv),
+                patch("sys.argv", [*argv, "--output", output_file]),
             ):
                 main()
             with open(output_file, encoding="utf-8") as f:
@@ -611,14 +595,18 @@ class TestOnceOutputFormats(unittest.TestCase):
         mock_print, written = self._run_once(["sys2txt", "once", "--format", "srt"], self.transcript)
         mock_print.assert_called_once_with(written, end="")
 
-    def test_generated_filename_takes_the_format_extension(self):
+    def test_no_output_flag_writes_no_file(self):
         with (
-            patch("sys2txt.__main__.ensure_output_dir", return_value="/out"),
-            patch("sys2txt.__main__.datetime") as mock_datetime,
+            patch("sys2txt.__main__._configure_logging"),
+            patch("sys2txt.__main__.get_default_monitor_source", return_value="default.monitor"),
+            patch("sys2txt.__main__.transcribe_once_cues", return_value=self.transcript),
+            patch("builtins.open") as mock_open_,
+            patch("builtins.print") as mock_print,
+            patch("sys.argv", ["sys2txt", "once", "--format", "srt"]),
         ):
-            mock_datetime.now.return_value.strftime.return_value = "2024-01-01_00-00-00"
-            self.assertEqual(_resolve_output_path(None, "srt"), os.path.join("/out", "2024-01-01_00-00-00.srt"))
-            self.assertEqual(_resolve_output_path(None, "json"), os.path.join("/out", "2024-01-01_00-00-00.json"))
+            main()
+        mock_open_.assert_not_called()
+        mock_print.assert_called_once()
 
 
 class TestLiveOutputFormats(unittest.TestCase):
@@ -631,10 +619,9 @@ class TestLiveOutputFormats(unittest.TestCase):
             with (
                 patch("sys2txt.__main__._configure_logging"),
                 patch("sys2txt.__main__.get_default_monitor_source", return_value="default.monitor"),
-                patch("sys2txt.__main__._resolve_output_path", return_value=output_file),
                 patch("sys2txt.__main__.transcribe_live", return_value=segments),
                 patch("builtins.print"),
-                patch("sys.argv", argv),
+                patch("sys.argv", [*argv, "--output", output_file]),
             ):
                 main()
             with open(output_file, encoding="utf-8") as f:
@@ -701,10 +688,9 @@ class TestLiveOutputFormats(unittest.TestCase):
             with (
                 patch("sys2txt.__main__._configure_logging"),
                 patch("sys2txt.__main__.get_default_monitor_source", return_value="default.monitor"),
-                patch("sys2txt.__main__._resolve_output_path", return_value=output_file),
                 patch("sys2txt.__main__.transcribe_live", return_value=live_segments("hello")),
                 patch("builtins.print"),
-                patch("sys.argv", ["sys2txt", "live", "--format", "srt"]),
+                patch("sys.argv", ["sys2txt", "live", "--format", "srt", "--output", output_file]),
             ):
                 main()
             with open(output_file, encoding="utf-8") as f:
@@ -728,10 +714,9 @@ class LiveRun:
             with (
                 patch("sys2txt.__main__._configure_logging"),
                 patch("sys2txt.__main__.get_default_monitor_source", return_value="default.monitor"),
-                patch("sys2txt.__main__._resolve_output_path", return_value=output_file),
                 patch("sys2txt.__main__.transcribe_live", return_value=segments) as mock_live,
                 patch("builtins.print") as mock_print,
-                patch("sys.argv", argv),
+                patch("sys.argv", [*argv, "--output", output_file]),
             ):
                 try:
                     main()
@@ -749,9 +734,8 @@ class TestModeDispatchLive(LiveRun, unittest.TestCase):
         with (
             patch("sys2txt.__main__._configure_logging"),
             patch("sys2txt.__main__.get_default_monitor_source", return_value="default.monitor"),
-            patch("sys2txt.__main__._resolve_output_path", return_value="/does/not/exist/out.txt"),
             patch("sys2txt.__main__.transcribe_live") as mock_live,
-            patch("sys.argv", ["sys2txt", "live"]),
+            patch("sys.argv", ["sys2txt", "live", "--output", "/does/not/exist/out.txt"]),
         ):
             with self.assertRaises(SystemExit) as ctx:
                 main()
@@ -858,10 +842,9 @@ class TestModeDispatchLive(LiveRun, unittest.TestCase):
             with (
                 patch("sys2txt.__main__._configure_logging"),
                 patch("sys2txt.__main__.get_default_monitor_source", return_value="default.monitor"),
-                patch("sys2txt.__main__._resolve_output_path", return_value=output_file),
                 patch("sys2txt.__main__.transcribe_live", return_value=segments()),
                 patch("builtins.print"),
-                patch("sys.argv", ["sys2txt", "live"]),
+                patch("sys.argv", ["sys2txt", "live", "--output", output_file]),
             ):
                 main()  # exits normally, not with code 130
             with open(output_file, encoding="utf-8") as f:
@@ -873,10 +856,12 @@ class TestModeDispatchLive(LiveRun, unittest.TestCase):
             with (
                 patch("sys2txt.__main__._configure_logging"),
                 patch("sys2txt.__main__.get_default_monitor_source", return_value="default.monitor"),
-                patch("sys2txt.__main__._resolve_output_path", return_value=os.path.join(tmp, "out.txt")),
                 patch("sys2txt.__main__.transcribe_live", return_value=segments),
                 patch("builtins.print"),
-                patch("sys.argv", ["sys2txt", "live", "--silence-timeout", "16"]),
+                patch(
+                    "sys.argv",
+                    ["sys2txt", "live", "--silence-timeout", "16", "--output", os.path.join(tmp, "out.txt")],
+                ),
             ):
                 main()
         with self.assertRaises(StopIteration):
