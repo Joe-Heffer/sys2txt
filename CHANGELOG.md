@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.7.0](https://github.com/Joe-Heffer/sys2txt/compare/v0.6.1...v0.7.0) (2026-09-06)
+
+
+### Features
+
+* auto-download missing whisper.cpp models ([#99](https://github.com/Joe-Heffer/sys2txt/issues/99)) ([f0d98ea](https://github.com/Joe-Heffer/sys2txt/commit/f0d98eab024884933faf8013f6e279d54692450c)), closes [#71](https://github.com/Joe-Heffer/sys2txt/issues/71)
+
+
+### Bug Fixes
+
+* stop auto-writing to ./output/, follow Unix stdout-default norm ([#108](https://github.com/Joe-Heffer/sys2txt/issues/108)) ([9219f2a](https://github.com/Joe-Heffer/sys2txt/commit/9219f2abf2f68cf4b1a678e1c7ee639155c2ed61))
+* whisper.cpp engine parses -oj JSON instead of scraping console output ([#97](https://github.com/Joe-Heffer/sys2txt/issues/97)) ([67e6acd](https://github.com/Joe-Heffer/sys2txt/commit/67e6acd629b5aa2f5f8aa12d9a9de426f1523d05))
+
 ## [0.6.1](https://github.com/Joe-Heffer/sys2txt/compare/v0.6.0...v0.6.1) (2026-08-30)
 
 
