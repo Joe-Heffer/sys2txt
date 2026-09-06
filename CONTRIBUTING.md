@@ -113,5 +113,5 @@ The project uses GitHub Actions for automated testing and publishing:
 
 ## Questions or Issues?
 
-- Open an issue: https://github.com/Joe-Heffer/sys2txt/issues
-- Discussions: https://github.com/Joe-Heffer/sys2txt/discussions
+- Submit a [bug report](https://github.com/Joe-Heffer/sys2txt/issues/new?template=bug_report.yml)
+- Open a [new issue](https://github.com/Joe-Heffer/sys2txt/issues)
