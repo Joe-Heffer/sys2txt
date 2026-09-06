@@ -49,5 +49,6 @@ nav:
   - Output formats: output-formats.md
   - Examples: examples.md
   - Python API: python-api.md
+  - Architecture: architecture.md
   - Troubleshooting: troubleshooting.md
   - Changelog: changelog.md
