@@ -239,6 +239,24 @@ ruff check src/
 ruff check --fix src/
 ```
 
+### Documentation site
+
+The user guide lives in `docs/` and is built with MkDocs Material (`mkdocs.yml` at repo root).
+
+```bash
+# Install docs dependencies
+pip install -e ".[docs]"
+
+# Preview locally at http://127.0.0.1:8000
+mkdocs serve
+
+# Build and check for broken links/nav config
+mkdocs build --strict
+```
+
+`.github/workflows/docs.yml` deploys `docs/` to the `gh-pages` branch on push to `main` when
+`docs/**` or `mkdocs.yml` change.
+
 ## File Structure
 - `src/sys2txt/__main__.py`: CLI entry point: parsing, validation, printing, output files, stop policy
 - `src/sys2txt/audio.py`: Audio recording with ffmpeg
@@ -263,10 +281,13 @@ ruff check --fix src/
   - `tests/test_init.py`: Tests for the public API surface
 - `.github/workflows/`:
   - `ci.yml`: CI workflow (tests, linting, formatting)
+  - `docs.yml`: Builds and deploys `docs/` to GitHub Pages (`gh-pages` branch)
   - `publish-to-pypi.yml`: Publish to PyPI on tag push
   - `publish-to-testpypi.yml`: Publish to TestPyPI on RC tags
 - `pyproject.toml`: Project metadata, dependencies, and build config
-- `README.md`: User documentation with installation, usage, examples
+- `README.md`: Short overview, install snippet, quick start, and a link to the docs site
+- `mkdocs.yml`: MkDocs Material config for the documentation site
+- `docs/`: User guide pages (installation, quick start, CLI reference, engines/devices, live mode, output formats, examples, Python API, troubleshooting)
 
 ## Platform Requirements
 - Ubuntu (or Linux with PulseAudio/PipeWire)
