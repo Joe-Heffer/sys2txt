@@ -7,7 +7,7 @@
 
 Record system audio and automatically transcribe to text using ✨AI✨.
 
-[![asciicast](https://asciinema.org/a/6Ob4WmuccSXEljRm.svg)](https://asciinema.org/a/6Ob4WmuccSXEljRm)
+[![sys2txt live demo](https://raw.githubusercontent.com/Joe-Heffer/sys2txt/main/docs/assets/demo.gif)](https://asciinema.org/a/6Ob4WmuccSXEljRm)
 
 *`sys2txt live` transcribing a public-domain LibriVox reading of Wordsworth's
 ["We Are Seven"](https://archive.org/details/spc277_2607_librivox) (recording by David Freisty, public domain).*
